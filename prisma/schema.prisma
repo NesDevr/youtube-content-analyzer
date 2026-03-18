@@ -23,6 +23,8 @@ model Video {
   viewsPerHour Float?
   savedAt      DateTime      @default(now())
   folders      FolderVideo[]
+
+  @@index([channelId])
 }
 
 model Channel {
@@ -33,13 +35,16 @@ model Channel {
   videoCount   Int
   averageViews Float?
   lastFetched  DateTime
+
+  @@index([lastFetched])
 }
 
 model Folder {
-  id        Int           @id @default(autoincrement())
-  name      String
-  createdAt DateTime      @default(now())
-  videos    FolderVideo[]
+  id              Int              @id @default(autoincrement())
+  name            String
+  createdAt       DateTime         @default(now())
+  videos          FolderVideo[]
+  ideaGenerations IdeaGeneration[]
 }
 
 model FolderVideo {
@@ -53,12 +58,15 @@ model FolderVideo {
 }
 
 model Panel {
-  id            Int       @id @default(autoincrement())
-  name          String
-  keyword       String
-  filters       String // JSON blob of filter settings
-  createdAt     DateTime  @default(now())
-  lastRefreshed DateTime?
+  id              Int              @id @default(autoincrement())
+  name            String
+  keyword         String
+  filters         String // JSON blob of filter settings
+  createdAt       DateTime         @default(now())
+  lastRefreshed   DateTime?
+  ideaGenerations IdeaGeneration[]
+
+  @@index([createdAt])
 }
 
 model IdeaGeneration {
@@ -68,4 +76,9 @@ model IdeaGeneration {
   prompt    String
   result    String // JSON blob of generated ideas
   createdAt DateTime @default(now())
+  panel     Panel?   @relation(fields: [panelId], references: [id], onDelete: SetNull)
+  folder    Folder?  @relation(fields: [folderId], references: [id], onDelete: SetNull)
+
+  @@index([folderId])
+  @@index([panelId])
 }
