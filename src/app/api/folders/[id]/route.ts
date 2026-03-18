@@ -8,8 +8,12 @@ export async function GET(
 ) {
   try {
     const { id } = await params;
+    const parsedId = parseInt(id);
+    if (Number.isNaN(parsedId)) {
+      return NextResponse.json({ error: "Invalid folder ID" }, { status: 400 });
+    }
     const folder = await prisma.folder.findUnique({
-      where: { id: parseInt(id) },
+      where: { id: parsedId },
       include: {
         videos: {
           include: { video: true },

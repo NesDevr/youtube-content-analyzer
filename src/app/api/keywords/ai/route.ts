@@ -1,13 +1,16 @@
 import { NextRequest, NextResponse } from "next/server";
 import { generateKeywords, brainstormKeywords } from "@/lib/claude";
+import { keywordsAiSchema, parseBody } from "@/lib/validation";
 
 export async function POST(req: NextRequest) {
   try {
-    const { topic, mode } = await req.json();
-
-    if (!topic) {
-      return NextResponse.json({ error: "Topic is required" }, { status: 400 });
+    const body = await req.json();
+    const parsed = parseBody(keywordsAiSchema, body);
+    if (!parsed.success) {
+      return NextResponse.json({ error: parsed.error }, { status: 400 });
     }
+
+    const { topic, mode } = parsed.data;
 
     if (mode === "brainstorm") {
       const result = await brainstormKeywords(topic);

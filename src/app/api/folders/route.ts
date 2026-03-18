@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
+import { folderActionSchema, parseBody } from "@/lib/validation";
 
 // GET /api/folders — list all folders with video count
 export async function GET() {
@@ -15,23 +16,25 @@ export async function GET() {
   }
 }
 
-// POST /api/folders — create folder or add video to folder
+// POST /api/folders — create folder or add/remove video
 export async function POST(req: NextRequest) {
   try {
     const body = await req.json();
+    const parsed = parseBody(folderActionSchema, body);
+    if (!parsed.success) {
+      return NextResponse.json({ error: parsed.error }, { status: 400 });
+    }
+    const data = parsed.data;
 
-    // Create a new folder
-    if (body.action === "create") {
+    if (data.action === "create") {
       const folder = await prisma.folder.create({
-        data: { name: body.name },
+        data: { name: data.name.trim() },
       });
       return NextResponse.json({ folder });
     }
 
-    // Add a video to a folder
-    if (body.action === "addVideo") {
-      // Ensure the video exists in DB first
-      const video = await prisma.video.findUnique({ where: { id: body.videoId } });
+    if (data.action === "addVideo") {
+      const video = await prisma.video.findUnique({ where: { id: data.videoId } });
       if (!video) {
         return NextResponse.json({ error: "Video not found in database" }, { status: 404 });
       }
@@ -39,29 +42,29 @@ export async function POST(req: NextRequest) {
       await prisma.folderVideo.upsert({
         where: {
           folderId_videoId: {
-            folderId: body.folderId,
-            videoId: body.videoId,
+            folderId: data.folderId,
+            videoId: data.videoId,
           },
         },
         update: {},
         create: {
-          folderId: body.folderId,
-          videoId: body.videoId,
+          folderId: data.folderId,
+          videoId: data.videoId,
         },
       });
       return NextResponse.json({ success: true });
     }
 
-    // Remove a video from a folder
-    if (body.action === "removeVideo") {
-      await prisma.folderVideo.delete({
+    if (data.action === "removeVideo") {
+      const result = await prisma.folderVideo.deleteMany({
         where: {
-          folderId_videoId: {
-            folderId: body.folderId,
-            videoId: body.videoId,
-          },
+          folderId: data.folderId,
+          videoId: data.videoId,
         },
       });
+      if (result.count === 0) {
+        return NextResponse.json({ error: "Video not found in folder" }, { status: 404 });
+      }
       return NextResponse.json({ success: true });
     }
 
@@ -82,7 +85,11 @@ export async function DELETE(req: NextRequest) {
     if (!id) {
       return NextResponse.json({ error: "Folder ID is required" }, { status: 400 });
     }
-    await prisma.folder.delete({ where: { id: parseInt(id) } });
+    const parsedId = parseInt(id);
+    if (Number.isNaN(parsedId)) {
+      return NextResponse.json({ error: "Invalid folder ID" }, { status: 400 });
+    }
+    await prisma.folder.delete({ where: { id: parsedId } });
     return NextResponse.json({ success: true });
   } catch (error) {
     console.error("Delete folder error:", error);

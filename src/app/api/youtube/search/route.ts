@@ -1,15 +1,16 @@
 import { NextRequest, NextResponse } from "next/server";
-import { findOutliers, SearchFilters } from "@/lib/youtube";
+import { findOutliers } from "@/lib/youtube";
+import { youtubeSearchSchema, parseBody } from "@/lib/validation";
 
 export async function POST(req: NextRequest) {
   try {
-    const filters: SearchFilters = await req.json();
-
-    if (!filters.keyword) {
-      return NextResponse.json({ error: "Keyword is required" }, { status: 400 });
+    const body = await req.json();
+    const parsed = parseBody(youtubeSearchSchema, body);
+    if (!parsed.success) {
+      return NextResponse.json({ error: parsed.error }, { status: 400 });
     }
 
-    const results = await findOutliers(filters);
+    const results = await findOutliers(parsed.data);
     return NextResponse.json({ results });
   } catch (error) {
     console.error("Search error:", error);

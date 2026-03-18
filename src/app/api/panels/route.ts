@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
+import { panelActionSchema, parseBody } from "@/lib/validation";
 
 export async function GET() {
   try {
@@ -16,21 +17,26 @@ export async function GET() {
 export async function POST(req: NextRequest) {
   try {
     const body = await req.json();
+    const parsed = parseBody(panelActionSchema, body);
+    if (!parsed.success) {
+      return NextResponse.json({ error: parsed.error }, { status: 400 });
+    }
+    const data = parsed.data;
 
-    if (body.action === "create") {
+    if (data.action === "create") {
       const panel = await prisma.panel.create({
         data: {
-          name: body.name,
-          keyword: body.keyword,
-          filters: JSON.stringify(body.filters || {}),
+          name: data.name.trim(),
+          keyword: data.keyword.trim(),
+          filters: JSON.stringify(data.filters || {}),
         },
       });
       return NextResponse.json({ panel });
     }
 
-    if (body.action === "refresh") {
+    if (data.action === "refresh") {
       await prisma.panel.update({
-        where: { id: body.id },
+        where: { id: data.id },
         data: { lastRefreshed: new Date() },
       });
       return NextResponse.json({ success: true });
@@ -47,7 +53,11 @@ export async function DELETE(req: NextRequest) {
   try {
     const id = req.nextUrl.searchParams.get("id");
     if (!id) return NextResponse.json({ error: "ID required" }, { status: 400 });
-    await prisma.panel.delete({ where: { id: parseInt(id) } });
+    const parsedId = parseInt(id);
+    if (Number.isNaN(parsedId)) {
+      return NextResponse.json({ error: "Invalid panel ID" }, { status: 400 });
+    }
+    await prisma.panel.delete({ where: { id: parsedId } });
     return NextResponse.json({ success: true });
   } catch (error) {
     console.error("Delete panel error:", error);

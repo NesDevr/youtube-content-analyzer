@@ -1,43 +1,11 @@
 import { prisma } from "./prisma";
+import { YOUTUBE_API_KEY } from "./env";
+import type { VideoResult, SearchFilters } from "@/types/video";
 
-const API_KEY = process.env.YOUTUBE_API_KEY!;
+export type { VideoResult, SearchFilters };
+
+const API_KEY = YOUTUBE_API_KEY;
 const BASE_URL = "https://www.googleapis.com/youtube/v3";
-
-// ── Types ──────────────────────────────────────────────
-
-export interface VideoResult {
-  id: string;
-  title: string;
-  channelId: string;
-  channelName: string;
-  views: number;
-  likes: number;
-  comments: number;
-  duration: string;
-  publishedAt: string;
-  thumbnailUrl: string;
-  description: string;
-  outlierScore: number | null;
-  viewsPerHour: number | null;
-  channelSubscribers: number | null;
-  channelAverageViews: number | null;
-  engagementRate: number | null;
-  viewsToSubsRatio: number | null;
-}
-
-export interface SearchFilters {
-  keyword: string;
-  maxSubscribers?: number;
-  minViews?: number;
-  minDuration?: number; // minutes
-  maxDuration?: number; // minutes
-  videoType?: "any" | "short" | "long";
-  publishedAfter?: string; // ISO date
-  publishedBefore?: string; // ISO date
-  language?: string;
-  maxResults?: number;
-  minEngagement?: number; // percentage
-}
 
 // ── Helpers ────────────────────────────────────────────
 
@@ -122,32 +90,38 @@ export async function getVideoDetails(videoIds: string[]): Promise<VideoResult[]
       }
       const data = await res.json();
 
-      for (const item of data.items || []) {
-        const video = {
-          id: item.id,
-          title: item.snippet.title,
-          channelId: item.snippet.channelId,
-          channelName: item.snippet.channelTitle,
-          views: parseInt(item.statistics.viewCount || "0"),
-          likes: parseInt(item.statistics.likeCount || "0"),
-          comments: parseInt(item.statistics.commentCount || "0"),
-          duration: item.contentDetails.duration,
-          publishedAt: item.snippet.publishedAt,
-          thumbnailUrl:
-            item.snippet.thumbnails?.high?.url ||
-            item.snippet.thumbnails?.medium?.url ||
-            item.snippet.thumbnails?.default?.url ||
-            "",
-          description: (item.snippet.description || "").slice(0, 500),
-        };
+      const newVideos = (data.items || []).map((item: { id: string; snippet: { title: string; channelId: string; channelTitle: string; publishedAt: string; thumbnails?: { high?: { url: string }; medium?: { url: string }; default?: { url: string } }; description?: string }; statistics: { viewCount?: string; likeCount?: string; commentCount?: string }; contentDetails: { duration: string } }) => ({
+        id: item.id,
+        title: item.snippet.title,
+        channelId: item.snippet.channelId,
+        channelName: item.snippet.channelTitle,
+        views: parseInt(item.statistics.viewCount || "0"),
+        likes: parseInt(item.statistics.likeCount || "0"),
+        comments: parseInt(item.statistics.commentCount || "0"),
+        duration: item.contentDetails.duration,
+        publishedAt: item.snippet.publishedAt,
+        thumbnailUrl:
+          item.snippet.thumbnails?.high?.url ||
+          item.snippet.thumbnails?.medium?.url ||
+          item.snippet.thumbnails?.default?.url ||
+          "",
+        description: (item.snippet.description || "").slice(0, 500),
+      }));
 
-        // Cache in DB
-        await prisma.video.upsert({
-          where: { id: video.id },
-          update: { ...video, publishedAt: new Date(video.publishedAt) },
-          create: { ...video, publishedAt: new Date(video.publishedAt) },
-        });
+      // Batch cache in DB
+      if (newVideos.length > 0) {
+        await prisma.$transaction(
+          newVideos.map((video: { id: string; title: string; channelId: string; channelName: string; views: number; likes: number; comments: number; duration: string; publishedAt: string; thumbnailUrl: string; description: string }) =>
+            prisma.video.upsert({
+              where: { id: video.id },
+              update: { ...video, publishedAt: new Date(video.publishedAt) },
+              create: { ...video, publishedAt: new Date(video.publishedAt) },
+            })
+          )
+        );
+      }
 
+      for (const video of newVideos) {
         cached.push({
           ...video,
           publishedAt: new Date(video.publishedAt),
@@ -233,34 +207,44 @@ export async function getChannelStats(
     if (!res.ok) continue;
     const data = await res.json();
 
-    for (const item of data.items || []) {
+    const channelItems = (data.items || []).map((item: { id: string; snippet: { title: string }; statistics: { subscriberCount?: string; viewCount?: string; videoCount?: string } }) => {
       const subscribers = parseInt(item.statistics.subscriberCount || "0");
       const totalViews = parseInt(item.statistics.viewCount || "0");
       const videoCount = parseInt(item.statistics.videoCount || "1");
       const averageViews = videoCount > 0 ? totalViews / videoCount : 0;
+      return { id: item.id, name: item.snippet.title, subscribers, totalViews, videoCount, averageViews };
+    });
 
-      await prisma.channel.upsert({
-        where: { id: item.id },
-        update: {
-          name: item.snippet.title,
-          subscribers,
-          totalViews: BigInt(totalViews),
-          videoCount,
-          averageViews,
-          lastFetched: new Date(),
-        },
-        create: {
-          id: item.id,
-          name: item.snippet.title,
-          subscribers,
-          totalViews: BigInt(totalViews),
-          videoCount,
-          averageViews,
-          lastFetched: new Date(),
-        },
-      });
+    // Batch upsert channels
+    if (channelItems.length > 0) {
+      await prisma.$transaction(
+        channelItems.map((ch: { id: string; name: string; subscribers: number; totalViews: number; videoCount: number; averageViews: number }) =>
+          prisma.channel.upsert({
+            where: { id: ch.id },
+            update: {
+              name: ch.name,
+              subscribers: ch.subscribers,
+              totalViews: BigInt(ch.totalViews),
+              videoCount: ch.videoCount,
+              averageViews: ch.averageViews,
+              lastFetched: new Date(),
+            },
+            create: {
+              id: ch.id,
+              name: ch.name,
+              subscribers: ch.subscribers,
+              totalViews: BigInt(ch.totalViews),
+              videoCount: ch.videoCount,
+              averageViews: ch.averageViews,
+              lastFetched: new Date(),
+            },
+          })
+        )
+      );
+    }
 
-      statsMap.set(item.id, { subscribers, averageViews, name: item.snippet.title });
+    for (const ch of channelItems) {
+      statsMap.set(ch.id, { subscribers: ch.subscribers, averageViews: ch.averageViews, name: ch.name });
     }
   }
 
@@ -340,15 +324,19 @@ export async function findOutliers(filters: SearchFilters): Promise<VideoResult[
   // Sort by outlier score descending
   filtered.sort((a, b) => (b.outlierScore || 0) - (a.outlierScore || 0));
 
-  // Update outlier scores in DB
-  for (const v of filtered) {
-    await prisma.video.update({
-      where: { id: v.id },
-      data: {
-        outlierScore: v.outlierScore,
-        viewsPerHour: v.viewsPerHour,
-      },
-    });
+  // Batch update outlier scores in DB
+  if (filtered.length > 0) {
+    await prisma.$transaction(
+      filtered.map((v) =>
+        prisma.video.update({
+          where: { id: v.id },
+          data: {
+            outlierScore: v.outlierScore,
+            viewsPerHour: v.viewsPerHour,
+          },
+        })
+      )
+    );
   }
 
   return filtered;

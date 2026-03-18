@@ -1,16 +1,16 @@
 import { NextRequest, NextResponse } from "next/server";
 import { summarizeVideo } from "@/lib/claude";
+import { aiSummarizeSchema, parseBody } from "@/lib/validation";
 
 export async function POST(req: NextRequest) {
   try {
-    const { videoUrl, title, views, likes, transcript } = await req.json();
-
-    if (!transcript) {
-      return NextResponse.json(
-        { error: "Transcript is required" },
-        { status: 400 }
-      );
+    const body = await req.json();
+    const parsed = parseBody(aiSummarizeSchema, body);
+    if (!parsed.success) {
+      return NextResponse.json({ error: parsed.error }, { status: 400 });
     }
+
+    const { title, views, likes, transcript } = parsed.data;
 
     const summary = await summarizeVideo(
       title || "Unknown",

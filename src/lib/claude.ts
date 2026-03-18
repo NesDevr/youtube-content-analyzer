@@ -1,7 +1,8 @@
 import Anthropic from "@anthropic-ai/sdk";
+import { ANTHROPIC_API_KEY } from "./env";
 
 const client = new Anthropic({
-  apiKey: process.env.ANTHROPIC_API_KEY!,
+  apiKey: ANTHROPIC_API_KEY,
 });
 
 export async function generateKeywords(topic: string): Promise<string[]> {
@@ -34,10 +35,14 @@ Return ONLY a JSON array of strings, no other text. Example: ["keyword 1", "keyw
     const parsed = JSON.parse(text);
     return Array.isArray(parsed) ? parsed : [];
   } catch {
-    // Try to extract JSON array from response
-    const match = text.match(/\[[\s\S]*\]/);
-    if (match) {
-      return JSON.parse(match[0]);
+    try {
+      const match = text.match(/\[[\s\S]*\]/);
+      if (match) {
+        const parsed = JSON.parse(match[0]);
+        return Array.isArray(parsed) ? parsed : [];
+      }
+    } catch {
+      // JSON extraction failed
     }
     return [];
   }

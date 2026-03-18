@@ -1,25 +1,23 @@
 import { NextRequest, NextResponse } from "next/server";
 import { analyzeVideos } from "@/lib/claude";
 import { prisma } from "@/lib/prisma";
+import { aiIdeasSchema, parseBody } from "@/lib/validation";
 
 export async function POST(req: NextRequest) {
   try {
-    const { videos, folderId } = await req.json();
-
-    if (!videos || !Array.isArray(videos) || videos.length === 0) {
-      return NextResponse.json(
-        { error: "At least one video is required" },
-        { status: 400 }
-      );
+    const body = await req.json();
+    const parsed = parseBody(aiIdeasSchema, body);
+    if (!parsed.success) {
+      return NextResponse.json({ error: parsed.error }, { status: 400 });
     }
 
+    const { videos, folderId } = parsed.data;
     const result = await analyzeVideos(videos);
 
-    // Save to DB
     await prisma.ideaGeneration.create({
       data: {
         folderId: folderId || null,
-        prompt: JSON.stringify(videos.map((v: { title: string }) => v.title)),
+        prompt: JSON.stringify(videos.map((v) => v.title)),
         result: JSON.stringify(result),
       },
     });
