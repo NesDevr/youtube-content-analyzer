@@ -1,0 +1,71 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "sqlite"
+  url      = env("DATABASE_URL")
+}
+
+model Video {
+  id           String        @id // YouTube video ID
+  title        String
+  channelId    String
+  channelName  String
+  views        Int
+  likes        Int
+  comments     Int
+  duration     String
+  publishedAt  DateTime
+  thumbnailUrl String
+  description  String        @default("")
+  outlierScore Float?
+  viewsPerHour Float?
+  savedAt      DateTime      @default(now())
+  folders      FolderVideo[]
+}
+
+model Channel {
+  id           String   @id // YouTube channel ID
+  name         String
+  subscribers  Int
+  totalViews   BigInt
+  videoCount   Int
+  averageViews Float?
+  lastFetched  DateTime
+}
+
+model Folder {
+  id        Int           @id @default(autoincrement())
+  name      String
+  createdAt DateTime      @default(now())
+  videos    FolderVideo[]
+}
+
+model FolderVideo {
+  folderId Int
+  videoId  String
+  addedAt  DateTime @default(now())
+  folder   Folder   @relation(fields: [folderId], references: [id], onDelete: Cascade)
+  video    Video    @relation(fields: [videoId], references: [id], onDelete: Cascade)
+
+  @@id([folderId, videoId])
+}
+
+model Panel {
+  id            Int       @id @default(autoincrement())
+  name          String
+  keyword       String
+  filters       String // JSON blob of filter settings
+  createdAt     DateTime  @default(now())
+  lastRefreshed DateTime?
+}
+
+model IdeaGeneration {
+  id        Int      @id @default(autoincrement())
+  panelId   Int?
+  folderId  Int?
+  prompt    String
+  result    String // JSON blob of generated ideas
+  createdAt DateTime @default(now())
+}
