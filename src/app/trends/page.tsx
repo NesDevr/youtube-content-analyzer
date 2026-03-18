@@ -171,10 +171,12 @@ export default function TrendsPage() {
           </div>
 
           <div className="flex gap-3 items-end">
-            {keywords.length < 5 && (
+            {keywords.length < 5 ? (
               <Button variant="outline" size="sm" onClick={addKeyword}>
                 <Plus className="h-4 w-4 mr-1" /> Add Keyword
               </Button>
+            ) : (
+              <span className="text-xs text-muted-foreground">Maximum 5 keywords</span>
             )}
             <div className="flex-1" />
             <div>

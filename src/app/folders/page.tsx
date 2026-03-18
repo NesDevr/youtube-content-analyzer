@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, useCallback } from "react";
+import { useState, useCallback } from "react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
@@ -12,14 +12,9 @@ import {
   Trash2,
   Loader2,
   ArrowLeft,
-  Sparkles,
 } from "lucide-react";
-
-interface Folder {
-  id: number;
-  name: string;
-  _count: { videos: number };
-}
+import { toast } from "sonner";
+import { useFolders } from "@/hooks/use-folders";
 
 interface FolderDetail {
   id: number;
@@ -45,23 +40,13 @@ interface FolderDetail {
 }
 
 export default function FoldersPage() {
-  const [folders, setFolders] = useState<Folder[]>([]);
+  const { folders, refresh: loadFolders } = useFolders();
   const [selectedFolder, setSelectedFolder] = useState<FolderDetail | null>(
     null
   );
   const [newFolderName, setNewFolderName] = useState("");
   const [loading, setLoading] = useState(false);
   const [selectedVideos, setSelectedVideos] = useState<Set<string>>(new Set());
-
-  const loadFolders = useCallback(async () => {
-    const res = await fetch("/api/folders");
-    const data = await res.json();
-    setFolders(data.folders || []);
-  }, []);
-
-  useEffect(() => {
-    loadFolders();
-  }, [loadFolders]);
 
   const loadFolder = async (id: number) => {
     setLoading(true);
@@ -78,44 +63,71 @@ export default function FoldersPage() {
 
   const createFolder = async () => {
     if (!newFolderName.trim()) return;
-    await fetch("/api/folders", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ action: "create", name: newFolderName.trim() }),
-    });
-    setNewFolderName("");
-    loadFolders();
+    try {
+      const res = await fetch("/api/folders", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action: "create", name: newFolderName.trim() }),
+      });
+      if (res.ok) {
+        toast.success("Folder created");
+        setNewFolderName("");
+        loadFolders();
+      } else {
+        toast.error("Failed to create folder");
+      }
+    } catch {
+      toast.error("Failed to create folder");
+    }
   };
 
   const deleteFolder = async (id: number) => {
     if (!confirm("Delete this folder?")) return;
-    await fetch(`/api/folders?id=${id}`, { method: "DELETE" });
-    if (selectedFolder?.id === id) setSelectedFolder(null);
-    loadFolders();
+    try {
+      const res = await fetch(`/api/folders?id=${id}`, { method: "DELETE" });
+      if (res.ok) {
+        toast.success("Folder deleted");
+        if (selectedFolder?.id === id) setSelectedFolder(null);
+        loadFolders();
+      } else {
+        toast.error("Failed to delete folder");
+      }
+    } catch {
+      toast.error("Failed to delete folder");
+    }
   };
 
   const removeVideo = async (videoId: string) => {
     if (!selectedFolder) return;
-    await fetch("/api/folders", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        action: "removeVideo",
-        folderId: selectedFolder.id,
-        videoId,
-      }),
-    });
-    loadFolder(selectedFolder.id);
+    try {
+      const res = await fetch("/api/folders", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          action: "removeVideo",
+          folderId: selectedFolder.id,
+          videoId,
+        }),
+      });
+      if (res.ok) {
+        toast.success("Video removed");
+        loadFolder(selectedFolder.id);
+      } else {
+        toast.error("Failed to remove video");
+      }
+    } catch {
+      toast.error("Failed to remove video");
+    }
   };
 
-  const toggleVideoSelect = (videoId: string) => {
+  const toggleVideoSelect = useCallback((videoId: string) => {
     setSelectedVideos((prev) => {
       const next = new Set(prev);
       if (next.has(videoId)) next.delete(videoId);
       else next.add(videoId);
       return next;
     });
-  };
+  }, []);
 
   // Folder detail view
   if (selectedFolder) {

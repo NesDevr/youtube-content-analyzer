@@ -3,6 +3,7 @@ import { Geist, Geist_Mono } from "next/font/google";
 import "./globals.css";
 import { Sidebar } from "@/components/sidebar";
 import { TooltipProvider } from "@/components/ui/tooltip";
+import { Toaster } from "sonner";
 
 const geistSans = Geist({
   variable: "--font-geist-sans",
@@ -34,6 +35,7 @@ export default function RootLayout({
             <Sidebar />
             <main className="flex-1 overflow-auto">{children}</main>
           </div>
+          <Toaster theme="dark" richColors position="bottom-right" />
         </TooltipProvider>
       </body>
     </html>

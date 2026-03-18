@@ -1,6 +1,5 @@
 "use client";
 
-import { useEffect, useState } from "react";
 import Link from "next/link";
 import {
   Card,
@@ -18,34 +17,13 @@ import {
   Sparkles,
   ArrowRight,
 } from "lucide-react";
-
-interface FolderSummary {
-  id: number;
-  name: string;
-  _count: { videos: number };
-}
-
-interface PanelSummary {
-  id: number;
-  name: string;
-  keyword: string;
-  lastRefreshed: string | null;
-}
+import { useFolders } from "@/hooks/use-folders";
+import { usePanels } from "@/hooks/use-panels";
 
 export default function Dashboard() {
-  const [folders, setFolders] = useState<FolderSummary[]>([]);
-  const [panels, setPanels] = useState<PanelSummary[]>([]);
-
-  useEffect(() => {
-    fetch("/api/folders")
-      .then((r) => r.json())
-      .then((d) => setFolders(d.folders || []))
-      .catch(() => {});
-    fetch("/api/panels")
-      .then((r) => r.json())
-      .then((d) => setPanels(d.panels || []))
-      .catch(() => {});
-  }, []);
+  const { folders, error: folderError } = useFolders();
+  const { panels, error: panelError } = usePanels();
+  const loadError = folderError || panelError;
 
   const features = [
     {
@@ -87,6 +65,12 @@ export default function Dashboard() {
           and generate content ideas.
         </p>
       </div>
+
+      {loadError && (
+        <div className="text-sm text-destructive bg-destructive/10 border border-destructive/20 rounded-lg px-4 py-3">
+          {loadError}
+        </div>
+      )}
 
       {/* Quick access cards */}
       <div className="grid grid-cols-1 md:grid-cols-2 gap-4">

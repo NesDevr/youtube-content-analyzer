@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState } from "react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
@@ -14,24 +14,17 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { Separator } from "@/components/ui/separator";
 import {
   Sparkles,
   Loader2,
   Lightbulb,
   FileText,
-  Video,
   Target,
   Layout,
   Image as ImageIcon,
   TrendingUp,
 } from "lucide-react";
-
-interface Folder {
-  id: number;
-  name: string;
-  _count: { videos: number };
-}
+import { useFolders } from "@/hooks/use-folders";
 
 interface FolderVideo {
   videoId: string;
@@ -55,7 +48,7 @@ interface VideoIdea {
 }
 
 export default function AIToolsPage() {
-  const [folders, setFolders] = useState<Folder[]>([]);
+  const { folders, error: folderError } = useFolders();
   const [selectedFolderId, setSelectedFolderId] = useState<string>("");
   const [folderVideos, setFolderVideos] = useState<FolderVideo[]>([]);
 
@@ -69,13 +62,6 @@ export default function AIToolsPage() {
   const [transcript, setTranscript] = useState("");
   const [summary, setSummary] = useState("");
   const [summaryLoading, setSummaryLoading] = useState(false);
-
-  useEffect(() => {
-    fetch("/api/folders")
-      .then((r) => r.json())
-      .then((d) => setFolders(d.folders || []))
-      .catch(() => {});
-  }, []);
 
   const loadFolderVideos = async (folderId: string) => {
     setSelectedFolderId(folderId);
@@ -109,7 +95,7 @@ export default function AIToolsPage() {
       const res = await fetch("/api/ai/ideas", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ videos, folderId: parseInt(selectedFolderId) }),
+        body: JSON.stringify({ videos, folderId: selectedFolderId ? parseInt(selectedFolderId) || null : null }),
       });
       const data = await res.json();
       setAnalysis(data.analysis || "");
@@ -180,6 +166,10 @@ export default function AIToolsPage() {
                 Select a folder with 3-5 viral videos. The AI will analyze why
                 they went viral and generate new content ideas.
               </p>
+
+              {folderError && (
+                <p className="text-sm text-destructive">{folderError}</p>
+              )}
 
               <div className="flex gap-3">
                 <Select

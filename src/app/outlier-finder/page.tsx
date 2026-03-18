@@ -1,7 +1,7 @@
 "use client";
 
-import { useState, useEffect, useCallback } from "react";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { useState, useCallback, useMemo } from "react";
+import { Card, CardContent } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { Label } from "@/components/ui/label";
@@ -15,31 +15,9 @@ import {
 } from "@/components/ui/select";
 import { VideoCard } from "@/components/video-card";
 import { Search, Loader2, Save, SlidersHorizontal } from "lucide-react";
-
-interface VideoResult {
-  id: string;
-  title: string;
-  channelName: string;
-  channelId: string;
-  views: number;
-  likes: number;
-  comments: number;
-  duration: string;
-  publishedAt: string;
-  thumbnailUrl: string;
-  description: string;
-  outlierScore: number | null;
-  viewsPerHour: number | null;
-  channelSubscribers: number | null;
-  channelAverageViews: number | null;
-  engagementRate: number | null;
-  viewsToSubsRatio: number | null;
-}
-
-interface Folder {
-  id: number;
-  name: string;
-}
+import { toast } from "sonner";
+import { useFolders } from "@/hooks/use-folders";
+import type { VideoResult } from "@/types/video";
 
 const DATE_PRESETS = [
   { label: "Any time", value: "" },
@@ -81,15 +59,8 @@ export default function OutlierFinderPage() {
   const [results, setResults] = useState<VideoResult[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
-  const [folders, setFolders] = useState<Folder[]>([]);
+  const { folders } = useFolders();
   const [selectedVideos, setSelectedVideos] = useState<Set<string>>(new Set());
-
-  useEffect(() => {
-    fetch("/api/folders")
-      .then((r) => r.json())
-      .then((d) => setFolders(d.folders || []))
-      .catch(() => {});
-  }, []);
 
   const handleSearch = useCallback(async () => {
     if (!keyword.trim()) return;
@@ -131,9 +102,9 @@ export default function OutlierFinderPage() {
     }
   }, [keyword, maxSubs, minViews, minDuration, maxDuration, minEngagement, datePreset, language]);
 
-  const handleSaveToFolder = async (videoId: string, folderId: number) => {
+  const handleSaveToFolder = useCallback(async (videoId: string, folderId: number) => {
     try {
-      await fetch("/api/folders", {
+      const res = await fetch("/api/folders", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -142,16 +113,21 @@ export default function OutlierFinderPage() {
           folderId,
         }),
       });
-    } catch (err) {
-      console.error("Save failed:", err);
+      if (res.ok) {
+        toast.success("Video saved to folder");
+      } else {
+        toast.error("Failed to save video");
+      }
+    } catch {
+      toast.error("Failed to save video");
     }
-  };
+  }, []);
 
-  const handleSavePanel = async () => {
+  const handleSavePanel = useCallback(async () => {
     const name = prompt("Panel name:");
     if (!name) return;
     try {
-      await fetch("/api/panels", {
+      const res = await fetch("/api/panels", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -169,34 +145,41 @@ export default function OutlierFinderPage() {
           },
         }),
       });
-    } catch (err) {
-      console.error("Save panel failed:", err);
+      if (res.ok) {
+        toast.success("Panel saved");
+      } else {
+        toast.error("Failed to save panel");
+      }
+    } catch {
+      toast.error("Failed to save panel");
     }
-  };
+  }, [keyword, maxSubs, minViews, minDuration, maxDuration, minEngagement, datePreset, language]);
 
-  const sortedResults = [...results].sort((a, b) => {
-    switch (sortBy) {
-      case "views":
-        return b.views - a.views;
-      case "views_per_hour":
-        return (b.viewsPerHour || 0) - (a.viewsPerHour || 0);
-      case "engagement":
-        return (b.engagementRate || 0) - (a.engagementRate || 0);
-      case "newest":
-        return new Date(b.publishedAt).getTime() - new Date(a.publishedAt).getTime();
-      default:
-        return (b.outlierScore || 0) - (a.outlierScore || 0);
-    }
-  });
+  const sortedResults = useMemo(() => {
+    return [...results].sort((a, b) => {
+      switch (sortBy) {
+        case "views":
+          return b.views - a.views;
+        case "views_per_hour":
+          return (b.viewsPerHour || 0) - (a.viewsPerHour || 0);
+        case "engagement":
+          return (b.engagementRate || 0) - (a.engagementRate || 0);
+        case "newest":
+          return new Date(b.publishedAt).getTime() - new Date(a.publishedAt).getTime();
+        default:
+          return (b.outlierScore || 0) - (a.outlierScore || 0);
+      }
+    });
+  }, [results, sortBy]);
 
-  const toggleVideoSelect = (videoId: string) => {
+  const toggleVideoSelect = useCallback((videoId: string) => {
     setSelectedVideos((prev) => {
       const next = new Set(prev);
       if (next.has(videoId)) next.delete(videoId);
       else next.add(videoId);
       return next;
     });
-  };
+  }, []);
 
   return (
     <div className="p-8 max-w-6xl mx-auto space-y-6">

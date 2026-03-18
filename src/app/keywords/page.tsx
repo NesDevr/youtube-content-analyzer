@@ -111,6 +111,7 @@ export default function KeywordsPage() {
               size="icon"
               className="h-7 w-7"
               onClick={() => copyKeyword(kw, i)}
+              aria-label={copiedIdx === i ? "Copied" : "Copy keyword to clipboard"}
             >
               {copiedIdx === i ? (
                 <Check className="h-3 w-3 text-green-500" />
