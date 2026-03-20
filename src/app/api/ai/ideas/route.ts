@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { analyzeVideos } from "@/lib/claude";
+import { analyzeVideos } from "@/lib/gemini";
 import { prisma } from "@/lib/prisma";
 import { aiIdeasSchema, parseBody } from "@/lib/validation";
 

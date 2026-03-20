@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { summarizeVideo } from "@/lib/claude";
+import { summarizeVideo } from "@/lib/gemini";
 import { aiSummarizeSchema, parseBody } from "@/lib/validation";
 
 export async function POST(req: NextRequest) {

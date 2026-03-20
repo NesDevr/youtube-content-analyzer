@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { generateKeywords, brainstormKeywords } from "@/lib/claude";
+import { generateKeywords, brainstormKeywords } from "@/lib/gemini";
 import { keywordsAiSchema, parseBody } from "@/lib/validation";
 
 export async function POST(req: NextRequest) {

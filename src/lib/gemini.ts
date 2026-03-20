@@ -1,18 +1,18 @@
-import Anthropic from "@anthropic-ai/sdk";
-import { ANTHROPIC_API_KEY } from "./env";
+import { GoogleGenAI } from "@google/genai";
+import { GOOGLE_PROJECT_ID, GOOGLE_CLOUD_LOCATION } from "./env";
 
-const client = new Anthropic({
-  apiKey: ANTHROPIC_API_KEY,
+const ai = new GoogleGenAI({
+  vertexai: true,
+  project: GOOGLE_PROJECT_ID,
+  location: GOOGLE_CLOUD_LOCATION,
 });
 
+const MODEL = "gemini-2.5-pro";
+
 export async function generateKeywords(topic: string): Promise<string[]> {
-  const response = await client.messages.create({
-    model: "claude-sonnet-4-6",
-    max_tokens: 1024,
-    messages: [
-      {
-        role: "user",
-        content: `You are a YouTube research expert. Generate 20 search keywords/phrases that VIEWERS would type into YouTube search to find videos about "${topic}".
+  const response = await ai.models.generateContent({
+    model: MODEL,
+    contents: `You are a YouTube research expert. Generate 20 search keywords/phrases that VIEWERS would type into YouTube search to find videos about "${topic}".
 
 CRITICAL RULES:
 - Generate keywords that real VIEWERS search for, NOT keywords about "starting a channel" or "faceless youtube"
@@ -25,12 +25,13 @@ GOOD examples for "stoicism": ["marcus aurelius life story", "stoic quotes that 
 BAD examples (DO NOT generate these): ["faceless stoicism channel", "viral stoicism niche", "stoicism youtube automation"]
 
 Return ONLY a JSON array of strings, no other text. Example: ["keyword 1", "keyword 2"]`,
-      },
-    ],
+    config: {
+      maxOutputTokens: 1024,
+      responseMimeType: "application/json",
+    },
   });
 
-  const text =
-    response.content[0].type === "text" ? response.content[0].text : "";
+  const text = response.text ?? "";
   try {
     const parsed = JSON.parse(text);
     return Array.isArray(parsed) ? parsed : [];
@@ -79,13 +80,9 @@ export async function analyzeVideos(
     )
     .join("\n\n");
 
-  const response = await client.messages.create({
-    model: "claude-sonnet-4-6",
-    max_tokens: 4096,
-    messages: [
-      {
-        role: "user",
-        content: `You are a YouTube content strategist analyzing viral videos to identify patterns and generate new content ideas.
+  const response = await ai.models.generateContent({
+    model: MODEL,
+    contents: `You are a YouTube content strategist analyzing viral videos to identify patterns and generate new content ideas.
 
 Here are the viral/outlier videos to analyze:
 
@@ -106,12 +103,13 @@ Provide your analysis in the following JSON format:
 }
 
 Generate 3-5 unique video ideas. Return ONLY valid JSON.`,
-      },
-    ],
+    config: {
+      maxOutputTokens: 4096,
+      responseMimeType: "application/json",
+    },
   });
 
-  const text =
-    response.content[0].type === "text" ? response.content[0].text : "";
+  const text = response.text ?? "";
   try {
     const match = text.match(/\{[\s\S]*\}/);
     return JSON.parse(match ? match[0] : text);
@@ -129,13 +127,9 @@ export async function summarizeVideo(
   views: number,
   likes: number
 ): Promise<string> {
-  const response = await client.messages.create({
-    model: "claude-sonnet-4-6",
-    max_tokens: 2048,
-    messages: [
-      {
-        role: "user",
-        content: `Summarize this YouTube video concisely. Focus on key points, arguments, and takeaways.
+  const response = await ai.models.generateContent({
+    model: MODEL,
+    contents: `Summarize this YouTube video concisely. Focus on key points, arguments, and takeaways.
 
 Title: "${title}"
 Views: ${views.toLocaleString()} | Likes: ${likes.toLocaleString()}
@@ -147,24 +141,21 @@ Provide:
 1. One-paragraph summary (3-4 sentences)
 2. Key Takeaways (bullet points)
 3. Why this video likely performed well (1-2 sentences)`,
-      },
-    ],
+    config: {
+      maxOutputTokens: 2048,
+    },
   });
 
-  return response.content[0].type === "text" ? response.content[0].text : "";
+  return response.text ?? "";
 }
 
 export async function brainstormKeywords(
   niche: string,
   context?: string
 ): Promise<{ keywords: string[]; reasoning: string }> {
-  const response = await client.messages.create({
-    model: "claude-sonnet-4-6",
-    max_tokens: 2048,
-    messages: [
-      {
-        role: "user",
-        content: `You are a YouTube content research expert. Your job is to generate search keywords that VIEWERS type into YouTube to find videos.
+  const response = await ai.models.generateContent({
+    model: MODEL,
+    contents: `You are a YouTube content research expert. Your job is to generate search keywords that VIEWERS type into YouTube to find videos.
 
 Niche description: "${niche}"
 ${context ? `Additional context: ${context}` : ""}
@@ -189,12 +180,13 @@ Return as JSON:
 }
 
 Generate 20-30 keywords. Return ONLY valid JSON.`,
-      },
-    ],
+    config: {
+      maxOutputTokens: 2048,
+      responseMimeType: "application/json",
+    },
   });
 
-  const text =
-    response.content[0].type === "text" ? response.content[0].text : "";
+  const text = response.text ?? "";
   try {
     const match = text.match(/\{[\s\S]*\}/);
     return JSON.parse(match ? match[0] : text);
