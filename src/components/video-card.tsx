@@ -5,6 +5,11 @@ import Image from "next/image";
 import { Card } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import {
+  Dialog,
+  DialogContent,
+  DialogTitle,
+} from "@/components/ui/dialog";
+import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
@@ -131,14 +136,19 @@ export const VideoCard = React.memo(function VideoCard({
   selected,
   onSearchSimilar,
 }: VideoCardProps) {
+  const [thumbnailOpen, setThumbnailOpen] = useState(false);
+
   return (
     <Card className="overflow-hidden hover:border-primary/30 transition-colors group">
       <div className="flex gap-4 p-4">
         {/* Thumbnail */}
-        <div className="relative flex-shrink-0 w-48 h-28 rounded-lg overflow-hidden bg-muted">
+        <div
+          className="relative flex-shrink-0 w-48 h-28 rounded-lg overflow-hidden bg-muted cursor-pointer"
+          onClick={() => setThumbnailOpen(true)}
+        >
           {onSelect && (
             <button
-              onClick={() => onSelect(video.id)}
+              onClick={(e) => { e.stopPropagation(); onSelect(video.id); }}
               className="absolute top-1 left-1 z-10 p-1 rounded bg-black/50 hover:bg-black/70 transition-colors"
             >
               <CheckSquare
@@ -157,6 +167,19 @@ export const VideoCard = React.memo(function VideoCard({
             {formatDuration(video.duration)}
           </div>
         </div>
+
+        <Dialog open={thumbnailOpen} onOpenChange={setThumbnailOpen}>
+          <DialogContent className="sm:max-w-3xl p-2">
+            <DialogTitle className="sr-only">{video.title}</DialogTitle>
+            {/* eslint-disable-next-line @next/next/no-img-element */}
+            <img
+              src={`https://i.ytimg.com/vi/${video.id}/maxresdefault.jpg`}
+              alt={video.title}
+              className="w-full rounded-lg"
+            />
+            <p className="text-sm text-muted-foreground text-center px-2 pb-1">{video.title}</p>
+          </DialogContent>
+        </Dialog>
 
         {/* Info */}
         <div className="flex-1 min-w-0">
