@@ -19,6 +19,82 @@ import { toast } from "sonner";
 import { useFolders } from "@/hooks/use-folders";
 import type { VideoResult } from "@/types/video";
 
+interface FilterPreset {
+  label: string;
+  description: string;
+  maxSubs: string;
+  minViews: string;
+  minDuration: string;
+  maxDuration: string;
+  minEngagement: string;
+  datePreset: string;
+  language: string;
+  sortBy: string;
+}
+
+const FILTER_PRESETS: FilterPreset[] = [
+  {
+    label: "Long-Form Outliers",
+    description: "Viral long videos from small channels (EN, last year)",
+    maxSubs: "200000",
+    minViews: "100000",
+    minDuration: "20",
+    maxDuration: "",
+    minEngagement: "",
+    datePreset: "1y",
+    language: "en",
+    sortBy: "outlier_score",
+  },
+  {
+    label: "Hidden Gems",
+    description: "High engagement from tiny channels",
+    maxSubs: "50000",
+    minViews: "50000",
+    minDuration: "",
+    maxDuration: "",
+    minEngagement: "5",
+    datePreset: "1y",
+    language: "",
+    sortBy: "engagement",
+  },
+  {
+    label: "Trending Now",
+    description: "Videos blowing up in the last 7 days",
+    maxSubs: "500000",
+    minViews: "10000",
+    minDuration: "",
+    maxDuration: "",
+    minEngagement: "",
+    datePreset: "7d",
+    language: "",
+    sortBy: "views_per_hour",
+  },
+  {
+    label: "Mid-Size Wins",
+    description: "Solid performers from mid-size channels",
+    maxSubs: "500000",
+    minViews: "200000",
+    minDuration: "8",
+    maxDuration: "",
+    minEngagement: "3",
+    datePreset: "3m",
+    language: "",
+    sortBy: "outlier_score",
+  },
+  {
+    label: "Shorts Outliers",
+    description: "Viral short-form content under 4 min",
+    maxSubs: "200000",
+    minViews: "500000",
+    minDuration: "",
+    maxDuration: "4",
+    minEngagement: "",
+    datePreset: "3m",
+    language: "",
+    sortBy: "views",
+  },
+];
+
 const DATE_PRESETS = [
   { label: "Any time", value: "" },
   { label: "Last 7 days", value: "7d" },
@@ -55,6 +131,32 @@ export default function OutlierFinderPage() {
   const [language, setLanguage] = useState("");
   const [sortBy, setSortBy] = useState("outlier_score");
   const [showFilters, setShowFilters] = useState(false);
+  const [activePreset, setActivePreset] = useState<string | null>(null);
+
+  const applyPreset = useCallback((preset: FilterPreset) => {
+    setMaxSubs(preset.maxSubs);
+    setMinViews(preset.minViews);
+    setMinDuration(preset.minDuration);
+    setMaxDuration(preset.maxDuration);
+    setMinEngagement(preset.minEngagement);
+    setDatePreset(preset.datePreset);
+    setLanguage(preset.language);
+    setSortBy(preset.sortBy);
+    setActivePreset(preset.label);
+    setShowFilters(true);
+  }, []);
+
+  const clearFilters = useCallback(() => {
+    setMaxSubs("300000");
+    setMinViews("");
+    setMinDuration("");
+    setMaxDuration("");
+    setMinEngagement("");
+    setDatePreset("");
+    setLanguage("");
+    setSortBy("outlier_score");
+    setActivePreset(null);
+  }, []);
 
   const [results, setResults] = useState<VideoResult[]>([]);
   const [loading, setLoading] = useState(false);
@@ -219,6 +321,33 @@ export default function OutlierFinderPage() {
             >
               <SlidersHorizontal className="h-4 w-4" />
             </Button>
+          </div>
+
+          {/* Filter Presets */}
+          <div className="flex items-center gap-2 mt-4 flex-wrap">
+            <span className="text-xs text-muted-foreground mr-1">Presets:</span>
+            {FILTER_PRESETS.map((preset) => (
+              <button
+                key={preset.label}
+                onClick={() => applyPreset(preset)}
+                className={`inline-flex items-center rounded-full px-3 py-1 text-xs font-medium transition-colors cursor-pointer ${
+                  activePreset === preset.label
+                    ? "bg-primary text-primary-foreground"
+                    : "bg-muted text-muted-foreground hover:bg-accent hover:text-accent-foreground"
+                }`}
+                title={preset.description}
+              >
+                {preset.label}
+              </button>
+            ))}
+            {activePreset && (
+              <button
+                onClick={clearFilters}
+                className="inline-flex items-center rounded-full px-3 py-1 text-xs font-medium bg-destructive/10 text-destructive hover:bg-destructive/20 transition-colors cursor-pointer"
+              >
+                Clear
+              </button>
+            )}
           </div>
 
           {/* Filters */}

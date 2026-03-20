@@ -16,7 +16,12 @@ import {
   FolderOpen,
   Sparkles,
   ArrowRight,
+  Target,
+  Lightbulb,
+  Compass,
+  Zap,
 } from "lucide-react";
+import { Badge } from "@/components/ui/badge";
 import { useFolders } from "@/hooks/use-folders";
 import { usePanels } from "@/hooks/use-panels";
 
@@ -71,6 +76,136 @@ export default function Dashboard() {
           {loadError}
         </div>
       )}
+
+      {/* Workflows */}
+      <div>
+        <h2 className="text-lg font-semibold mb-4">How to Use</h2>
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+          <Card className="border-red-500/20">
+            <CardHeader className="pb-3">
+              <div className="flex items-center gap-3">
+                <div className="flex items-center justify-center h-8 w-8 rounded-full bg-red-500/10">
+                  <Target className="h-4 w-4 text-red-500" />
+                </div>
+                <div>
+                  <CardTitle className="text-sm">Niche Research to Video Ideas</CardTitle>
+                  <Badge variant="secondary" className="text-[10px] mt-1">Full pipeline</Badge>
+                </div>
+              </div>
+            </CardHeader>
+            <CardContent>
+              <ol className="text-sm text-muted-foreground space-y-2">
+                <li className="flex gap-2">
+                  <span className="text-red-500 font-medium shrink-0">1.</span>
+                  <span><Link href="/keywords" className="text-foreground hover:underline">Keyword Research</Link> — find what viewers are actually searching for in your niche</span>
+                </li>
+                <li className="flex gap-2">
+                  <span className="text-red-500 font-medium shrink-0">2.</span>
+                  <span><Link href="/outlier-finder" className="text-foreground hover:underline">Outlier Finder</Link> — search those keywords to find viral videos from small channels</span>
+                </li>
+                <li className="flex gap-2">
+                  <span className="text-red-500 font-medium shrink-0">3.</span>
+                  <span><Link href="/folders" className="text-foreground hover:underline">Folders</Link> — save the best outliers into a folder</span>
+                </li>
+                <li className="flex gap-2">
+                  <span className="text-red-500 font-medium shrink-0">4.</span>
+                  <span><Link href="/ai-tools" className="text-foreground hover:underline">AI Ideas</Link> — select that folder and generate video ideas based on what went viral</span>
+                </li>
+              </ol>
+            </CardContent>
+          </Card>
+
+          <Card className="border-blue-500/20">
+            <CardHeader className="pb-3">
+              <div className="flex items-center gap-3">
+                <div className="flex items-center justify-center h-8 w-8 rounded-full bg-blue-500/10">
+                  <Compass className="h-4 w-4 text-blue-500" />
+                </div>
+                <div>
+                  <CardTitle className="text-sm">Discover a New Niche</CardTitle>
+                  <Badge variant="secondary" className="text-[10px] mt-1">Exploration</Badge>
+                </div>
+              </div>
+            </CardHeader>
+            <CardContent>
+              <ol className="text-sm text-muted-foreground space-y-2">
+                <li className="flex gap-2">
+                  <span className="text-blue-500 font-medium shrink-0">1.</span>
+                  <span><Link href="/keywords" className="text-foreground hover:underline">AI Brainstorm</Link> — describe a broad topic and let AI generate keyword ideas</span>
+                </li>
+                <li className="flex gap-2">
+                  <span className="text-blue-500 font-medium shrink-0">2.</span>
+                  <span><Link href="/trends" className="text-foreground hover:underline">Google Trends</Link> — compare those keywords to see which ones are growing</span>
+                </li>
+                <li className="flex gap-2">
+                  <span className="text-blue-500 font-medium shrink-0">3.</span>
+                  <span><Link href="/outlier-finder" className="text-foreground hover:underline">Outlier Finder</Link> — search the trending keywords to validate demand with real videos</span>
+                </li>
+              </ol>
+            </CardContent>
+          </Card>
+
+          <Card className="border-green-500/20">
+            <CardHeader className="pb-3">
+              <div className="flex items-center gap-3">
+                <div className="flex items-center justify-center h-8 w-8 rounded-full bg-green-500/10">
+                  <Lightbulb className="h-4 w-4 text-green-500" />
+                </div>
+                <div>
+                  <CardTitle className="text-sm">Quick Video Idea</CardTitle>
+                  <Badge variant="secondary" className="text-[10px] mt-1">Fast</Badge>
+                </div>
+              </div>
+            </CardHeader>
+            <CardContent>
+              <ol className="text-sm text-muted-foreground space-y-2">
+                <li className="flex gap-2">
+                  <span className="text-green-500 font-medium shrink-0">1.</span>
+                  <span><Link href="/outlier-finder" className="text-foreground hover:underline">Outlier Finder</Link> — search a keyword you already have in mind</span>
+                </li>
+                <li className="flex gap-2">
+                  <span className="text-green-500 font-medium shrink-0">2.</span>
+                  <span>Use &quot;Find Similar&quot; on any video to discover related outliers</span>
+                </li>
+                <li className="flex gap-2">
+                  <span className="text-green-500 font-medium shrink-0">3.</span>
+                  <span>Open a video on YouTube, copy its transcript, and use the <Link href="/ai-tools" className="text-foreground hover:underline">Summarizer</Link> to study it</span>
+                </li>
+              </ol>
+            </CardContent>
+          </Card>
+
+          <Card className="border-purple-500/20">
+            <CardHeader className="pb-3">
+              <div className="flex items-center gap-3">
+                <div className="flex items-center justify-center h-8 w-8 rounded-full bg-purple-500/10">
+                  <Zap className="h-4 w-4 text-purple-500" />
+                </div>
+                <div>
+                  <CardTitle className="text-sm">Spy on What&apos;s Working Now</CardTitle>
+                  <Badge variant="secondary" className="text-[10px] mt-1">Competitive</Badge>
+                </div>
+              </div>
+            </CardHeader>
+            <CardContent>
+              <ol className="text-sm text-muted-foreground space-y-2">
+                <li className="flex gap-2">
+                  <span className="text-purple-500 font-medium shrink-0">1.</span>
+                  <span><Link href="/outlier-finder" className="text-foreground hover:underline">Outlier Finder</Link> — search your niche, filter by &quot;Last 7 days&quot; to see what&apos;s popping right now</span>
+                </li>
+                <li className="flex gap-2">
+                  <span className="text-purple-500 font-medium shrink-0">2.</span>
+                  <span>Sort by &quot;Views/Hour&quot; to find videos gaining momentum fast</span>
+                </li>
+                <li className="flex gap-2">
+                  <span className="text-purple-500 font-medium shrink-0">3.</span>
+                  <span>Save the top performers and use <Link href="/ai-tools" className="text-foreground hover:underline">AI Ideas</Link> to create your own spin</span>
+                </li>
+              </ol>
+            </CardContent>
+          </Card>
+        </div>
+      </div>
 
       {/* Quick access cards */}
       <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
