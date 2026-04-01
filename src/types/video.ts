@@ -24,7 +24,7 @@ export interface SearchFilters {
   minViews?: number;
   minDuration?: number;
   maxDuration?: number;
-  videoType?: "any" | "short" | "long";
+  videoType?: "any" | "short" | "medium" | "long";
   publishedAfter?: string;
   publishedBefore?: string;
   language?: string;

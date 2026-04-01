@@ -8,5 +8,4 @@ function requireEnv(name: string): string {
 
 export const YOUTUBE_API_KEY = requireEnv("YOUTUBE_API_KEY");
 export const GOOGLE_PROJECT_ID = requireEnv("GOOGLE_PROJECT_ID");
-export const GOOGLE_CLOUD_LOCATION =
-  process.env.GOOGLE_CLOUD_LOCATION || "us-central1";
+export const GOOGLE_CLOUD_LOCATION = requireEnv("GOOGLE_CLOUD_LOCATION");

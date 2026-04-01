@@ -132,7 +132,7 @@ export default function FoldersPage() {
   // Folder detail view
   if (selectedFolder) {
     return (
-      <div className="p-8 max-w-6xl mx-auto space-y-6">
+      <div className="p-8 max-w-6xl mx-auto space-y-6 animate-fade-in-up">
         <div className="flex items-center gap-4">
           <Button
             variant="ghost"
@@ -192,7 +192,7 @@ export default function FoldersPage() {
 
   // Folder list view
   return (
-    <div className="p-8 max-w-6xl mx-auto space-y-6">
+    <div className="p-8 max-w-6xl mx-auto space-y-6 animate-fade-in-up">
       <div>
         <h1 className="text-3xl font-bold tracking-tight">Folders</h1>
         <p className="text-muted-foreground mt-1">
@@ -235,7 +235,7 @@ export default function FoldersPage() {
           {folders.map((folder) => (
             <Card
               key={folder.id}
-              className="cursor-pointer hover:border-primary/30 transition-colors group"
+              className="cursor-pointer hover:-translate-y-0.5 hover:shadow-lg hover:shadow-primary/5 transition-all duration-200 group"
               onClick={() => loadFolder(folder.id)}
             >
               <CardHeader className="pb-2">

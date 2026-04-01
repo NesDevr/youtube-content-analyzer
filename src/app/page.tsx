@@ -20,6 +20,7 @@ import {
   Lightbulb,
   Compass,
   Zap,
+  Microscope,
 } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { useFolders } from "@/hooks/use-folders";
@@ -37,6 +38,7 @@ export default function Dashboard() {
       title: "Outlier Finder",
       desc: "Find viral videos from small channels. The core algorithm that surfaces hidden gems.",
       color: "text-red-500",
+      bgColor: "bg-red-500/10",
     },
     {
       href: "/keywords",
@@ -44,6 +46,7 @@ export default function Dashboard() {
       title: "Keyword Research",
       desc: "YouTube autocomplete + AI-powered keyword suggestions for niche discovery.",
       color: "text-blue-500",
+      bgColor: "bg-blue-500/10",
     },
     {
       href: "/trends",
@@ -51,6 +54,7 @@ export default function Dashboard() {
       title: "Google Trends",
       desc: "Compare keyword interest over time, find breakout terms and rising queries.",
       color: "text-green-500",
+      bgColor: "bg-green-500/10",
     },
     {
       href: "/ai-tools",
@@ -58,14 +62,37 @@ export default function Dashboard() {
       title: "AI Tools",
       desc: "AI idea generator, video summarizer, and keyword brainstorming.",
       color: "text-purple-500",
+      bgColor: "bg-purple-500/10",
+    },
+    {
+      href: "/analyzer",
+      icon: Microscope,
+      title: "Video Analyzer",
+      desc: "Paste YouTube URLs for deep AI analysis of scripts, hooks, and thumbnails — plus inspired content ideas.",
+      color: "text-orange-500",
+      bgColor: "bg-orange-500/10",
+    },
+    {
+      href: "/channel-starter",
+      icon: Compass,
+      title: "Channel Starter",
+      desc: "Don't have a niche yet? Discover data-backed opportunities and get a complete content plan for your new channel.",
+      color: "text-cyan-500",
+      bgColor: "bg-cyan-500/10",
     },
   ];
 
   return (
-    <div className="p-8 max-w-6xl mx-auto space-y-8">
+    <div className="p-8 max-w-6xl mx-auto space-y-8 animate-fade-in-up">
       <div>
-        <h1 className="text-3xl font-bold tracking-tight">Dashboard</h1>
-        <p className="text-muted-foreground mt-2">
+        <Badge variant="outline" className="mb-3 text-primary border-primary/30">
+          YouTube Research Suite
+        </Badge>
+        <h1 className="text-3xl font-bold tracking-tight">
+          Welcome to{" "}
+          <span className="brand-gradient-text">YT Analyzer</span>
+        </h1>
+        <p className="text-muted-foreground mt-2 max-w-xl">
           Your YouTube research command center. Find niches, discover outliers,
           and generate content ideas.
         </p>
@@ -79,10 +106,17 @@ export default function Dashboard() {
 
       {/* Workflows */}
       <div>
-        <h2 className="text-lg font-semibold mb-4">How to Use</h2>
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-          <Card className="border-red-500/20">
-            <CardHeader className="pb-3">
+        <div className="flex items-center gap-3 mb-4">
+          <div className="h-px flex-1 bg-border" />
+          <h2 className="text-sm font-semibold text-muted-foreground uppercase tracking-wider">
+            How to Use
+          </h2>
+          <div className="h-px flex-1 bg-border" />
+        </div>
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-4 stagger-children">
+          <Card className="relative overflow-hidden hover:shadow-lg hover:shadow-primary/5 transition-all duration-300">
+            <div className="absolute left-0 inset-y-0 w-1 bg-red-500 rounded-l-xl" />
+            <CardHeader className="pb-3 pl-6">
               <div className="flex items-center gap-3">
                 <div className="flex items-center justify-center h-8 w-8 rounded-full bg-red-500/10">
                   <Target className="h-4 w-4 text-red-500" />
@@ -93,7 +127,7 @@ export default function Dashboard() {
                 </div>
               </div>
             </CardHeader>
-            <CardContent>
+            <CardContent className="pl-6">
               <ol className="text-sm text-muted-foreground space-y-2">
                 <li className="flex gap-2">
                   <span className="text-red-500 font-medium shrink-0">1.</span>
@@ -115,8 +149,9 @@ export default function Dashboard() {
             </CardContent>
           </Card>
 
-          <Card className="border-blue-500/20">
-            <CardHeader className="pb-3">
+          <Card className="relative overflow-hidden hover:shadow-lg hover:shadow-primary/5 transition-all duration-300">
+            <div className="absolute left-0 inset-y-0 w-1 bg-blue-500 rounded-l-xl" />
+            <CardHeader className="pb-3 pl-6">
               <div className="flex items-center gap-3">
                 <div className="flex items-center justify-center h-8 w-8 rounded-full bg-blue-500/10">
                   <Compass className="h-4 w-4 text-blue-500" />
@@ -127,26 +162,27 @@ export default function Dashboard() {
                 </div>
               </div>
             </CardHeader>
-            <CardContent>
+            <CardContent className="pl-6">
               <ol className="text-sm text-muted-foreground space-y-2">
                 <li className="flex gap-2">
                   <span className="text-blue-500 font-medium shrink-0">1.</span>
-                  <span><Link href="/keywords" className="text-foreground hover:underline">AI Brainstorm</Link> — describe a broad topic and let AI generate keyword ideas</span>
+                  <span><Link href="/channel-starter" className="text-foreground hover:underline">Channel Starter</Link> — guided wizard that discovers niches backed by real YouTube data</span>
                 </li>
                 <li className="flex gap-2">
                   <span className="text-blue-500 font-medium shrink-0">2.</span>
-                  <span><Link href="/trends" className="text-foreground hover:underline">Google Trends</Link> — compare those keywords to see which ones are growing</span>
+                  <span>Pick a niche, get a deep dive analysis, content strategy, and your first 10 video ideas</span>
                 </li>
                 <li className="flex gap-2">
                   <span className="text-blue-500 font-medium shrink-0">3.</span>
-                  <span><Link href="/outlier-finder" className="text-foreground hover:underline">Outlier Finder</Link> — search the trending keywords to validate demand with real videos</span>
+                  <span>Or explore manually: <Link href="/keywords" className="text-foreground hover:underline">AI Brainstorm</Link> keywords, check <Link href="/trends" className="text-foreground hover:underline">Google Trends</Link>, validate with <Link href="/outlier-finder" className="text-foreground hover:underline">Outlier Finder</Link></span>
                 </li>
               </ol>
             </CardContent>
           </Card>
 
-          <Card className="border-green-500/20">
-            <CardHeader className="pb-3">
+          <Card className="relative overflow-hidden hover:shadow-lg hover:shadow-primary/5 transition-all duration-300">
+            <div className="absolute left-0 inset-y-0 w-1 bg-green-500 rounded-l-xl" />
+            <CardHeader className="pb-3 pl-6">
               <div className="flex items-center gap-3">
                 <div className="flex items-center justify-center h-8 w-8 rounded-full bg-green-500/10">
                   <Lightbulb className="h-4 w-4 text-green-500" />
@@ -157,7 +193,7 @@ export default function Dashboard() {
                 </div>
               </div>
             </CardHeader>
-            <CardContent>
+            <CardContent className="pl-6">
               <ol className="text-sm text-muted-foreground space-y-2">
                 <li className="flex gap-2">
                   <span className="text-green-500 font-medium shrink-0">1.</span>
@@ -175,8 +211,9 @@ export default function Dashboard() {
             </CardContent>
           </Card>
 
-          <Card className="border-purple-500/20">
-            <CardHeader className="pb-3">
+          <Card className="relative overflow-hidden hover:shadow-lg hover:shadow-primary/5 transition-all duration-300">
+            <div className="absolute left-0 inset-y-0 w-1 bg-purple-500 rounded-l-xl" />
+            <CardHeader className="pb-3 pl-6">
               <div className="flex items-center gap-3">
                 <div className="flex items-center justify-center h-8 w-8 rounded-full bg-purple-500/10">
                   <Zap className="h-4 w-4 text-purple-500" />
@@ -187,7 +224,7 @@ export default function Dashboard() {
                 </div>
               </div>
             </CardHeader>
-            <CardContent>
+            <CardContent className="pl-6">
               <ol className="text-sm text-muted-foreground space-y-2">
                 <li className="flex gap-2">
                   <span className="text-purple-500 font-medium shrink-0">1.</span>
@@ -204,18 +241,51 @@ export default function Dashboard() {
               </ol>
             </CardContent>
           </Card>
+
+          <Card className="relative overflow-hidden hover:shadow-lg hover:shadow-primary/5 transition-all duration-300">
+            <div className="absolute left-0 inset-y-0 w-1 bg-orange-500 rounded-l-xl" />
+            <CardHeader className="pb-3 pl-6">
+              <div className="flex items-center gap-3">
+                <div className="flex items-center justify-center h-8 w-8 rounded-full bg-orange-500/10">
+                  <Microscope className="h-4 w-4 text-orange-500" />
+                </div>
+                <div>
+                  <CardTitle className="text-sm">Deep-Dive Analysis</CardTitle>
+                  <Badge variant="secondary" className="text-[10px] mt-1">Advanced</Badge>
+                </div>
+              </div>
+            </CardHeader>
+            <CardContent className="pl-6">
+              <ol className="text-sm text-muted-foreground space-y-2">
+                <li className="flex gap-2">
+                  <span className="text-orange-500 font-medium shrink-0">1.</span>
+                  <span><Link href="/analyzer" className="text-foreground hover:underline">Video Analyzer</Link> — paste YouTube URLs of videos you want to study</span>
+                </li>
+                <li className="flex gap-2">
+                  <span className="text-orange-500 font-medium shrink-0">2.</span>
+                  <span>AI auto-fetches transcripts and analyzes hooks, script structure, and thumbnails</span>
+                </li>
+                <li className="flex gap-2">
+                  <span className="text-orange-500 font-medium shrink-0">3.</span>
+                  <span>Get inspired video concepts with full hook scripts and structure outlines</span>
+                </li>
+              </ol>
+            </CardContent>
+          </Card>
         </div>
       </div>
 
       {/* Quick access cards */}
-      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-4 stagger-children">
         {features.map((f) => (
           <Link key={f.href} href={f.href}>
-            <Card className="hover:border-primary/30 transition-colors cursor-pointer h-full">
+            <Card className="hover:-translate-y-1 hover:shadow-lg hover:shadow-primary/5 transition-all duration-300 cursor-pointer h-full group">
               <CardHeader className="pb-3">
                 <div className="flex items-center gap-3">
-                  <f.icon className={`h-5 w-5 ${f.color}`} />
-                  <CardTitle className="text-base">{f.title}</CardTitle>
+                  <div className={`flex items-center justify-center h-10 w-10 rounded-xl ${f.bgColor} transition-transform duration-300 group-hover:scale-110`}>
+                    <f.icon className={`h-5 w-5 ${f.color}`} />
+                  </div>
+                  <CardTitle className="text-base group-hover:text-primary transition-colors">{f.title}</CardTitle>
                 </div>
               </CardHeader>
               <CardContent>
@@ -230,7 +300,7 @@ export default function Dashboard() {
       {panels.length > 0 && (
         <div>
           <div className="flex items-center justify-between mb-4">
-            <h2 className="text-lg font-semibold">Saved Panels</h2>
+            <h2 className="text-sm font-semibold text-muted-foreground uppercase tracking-wider">Saved Panels</h2>
             <Link href="/outlier-finder">
               <Button variant="ghost" size="sm">
                 View All <ArrowRight className="ml-1 h-4 w-4" />
@@ -260,7 +330,7 @@ export default function Dashboard() {
       {folders.length > 0 && (
         <div>
           <div className="flex items-center justify-between mb-4">
-            <h2 className="text-lg font-semibold">Your Folders</h2>
+            <h2 className="text-sm font-semibold text-muted-foreground uppercase tracking-wider">Your Folders</h2>
             <Link href="/folders">
               <Button variant="ghost" size="sm">
                 Manage <ArrowRight className="ml-1 h-4 w-4" />
@@ -270,7 +340,7 @@ export default function Dashboard() {
           <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
             {folders.slice(0, 8).map((folder) => (
               <Link key={folder.id} href={`/folders?id=${folder.id}`}>
-                <Card className="p-4 hover:border-primary/30 transition-colors cursor-pointer">
+                <Card className="p-4 hover:-translate-y-0.5 hover:shadow-lg hover:shadow-primary/5 transition-all duration-200 cursor-pointer">
                   <div className="flex items-center gap-2">
                     <FolderOpen className="h-4 w-4 text-muted-foreground" />
                     <span className="text-sm font-medium">{folder.name}</span>

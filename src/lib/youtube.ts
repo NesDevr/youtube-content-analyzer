@@ -9,7 +9,7 @@ const BASE_URL = "https://www.googleapis.com/youtube/v3";
 
 // ── Helpers ────────────────────────────────────────────
 
-function parseDuration(iso: string): number {
+export function parseDuration(iso: string): number {
   // PT1H2M3S → seconds
   const match = iso.match(/PT(?:(\d+)H)?(?:(\d+)M)?(?:(\d+)S)?/);
   if (!match) return 0;
@@ -46,6 +46,8 @@ function buildSearchParams(filters: SearchFilters): URLSearchParams {
     params.set("videoDuration", "short"); // < 4 min
   } else if (filters.videoType === "short") {
     params.set("videoDuration", "short");
+  } else if (filters.videoType === "medium") {
+    params.set("videoDuration", "medium");
   } else if (filters.videoType === "long") {
     params.set("videoDuration", "long");
   }

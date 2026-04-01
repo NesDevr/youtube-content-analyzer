@@ -1,5 +1,23 @@
 import googleTrends from "google-trends-api";
 
+// In-memory cache with 24h TTL to avoid redundant Google Trends API calls
+const trendsCache = new Map<string, { data: unknown; timestamp: number }>();
+const TRENDS_TTL_MS = 24 * 60 * 60 * 1000; // 24 hours
+
+function getCached<T>(key: string): T | null {
+  const entry = trendsCache.get(key);
+  if (!entry) return null;
+  if (Date.now() - entry.timestamp > TRENDS_TTL_MS) {
+    trendsCache.delete(key);
+    return null;
+  }
+  return entry.data as T;
+}
+
+function setCache(key: string, data: unknown): void {
+  trendsCache.set(key, { data, timestamp: Date.now() });
+}
+
 export interface TrendData {
   date: string;
   value: number;
@@ -19,6 +37,10 @@ export async function getInterestOverTime(
   keywords: string[],
   timeRange: "now 7-d" | "today 1-m" | "today 3-m" | "today 12-m" | "today 5-y" = "today 12-m"
 ): Promise<TrendResult[]> {
+  const cacheKey = `iot:${keywords.sort().join(",")}:${timeRange}`;
+  const cached = getCached<TrendResult[]>(cacheKey);
+  if (cached) return cached;
+
   try {
     const result = await googleTrends.interestOverTime({
       keyword: keywords,
@@ -29,7 +51,7 @@ export async function getInterestOverTime(
     const parsed = JSON.parse(result);
     const timeline = parsed.default?.timelineData || [];
 
-    return keywords.map((kw, idx) => ({
+    const results = keywords.map((kw, idx) => ({
       keyword: kw,
       data: timeline.map(
         (point: { formattedTime: string; value: number[] }) => ({
@@ -38,6 +60,8 @@ export async function getInterestOverTime(
         })
       ),
     }));
+    setCache(cacheKey, results);
+    return results;
   } catch (error) {
     console.error("Google Trends error:", error);
     return keywords.map((kw) => ({ keyword: kw, data: [] }));
@@ -47,12 +71,16 @@ export async function getInterestOverTime(
 export async function getRelatedQueries(
   keyword: string
 ): Promise<{ rising: RelatedQuery[]; top: RelatedQuery[] }> {
+  const cacheKey = `rq:${keyword}`;
+  const cached = getCached<{ rising: RelatedQuery[]; top: RelatedQuery[] }>(cacheKey);
+  if (cached) return cached;
+
   try {
     const result = await googleTrends.relatedQueries({ keyword });
     const parsed = JSON.parse(result);
     const data = parsed.default?.rankedList || [];
 
-    return {
+    const results = {
       top: (data[0]?.rankedKeyword || []).map(
         (item: { query: string; value: number }) => ({
           query: item.query,
@@ -66,6 +94,8 @@ export async function getRelatedQueries(
         })
       ),
     };
+    setCache(cacheKey, results);
+    return results;
   } catch (error) {
     console.error("Related queries error:", error);
     return { rising: [], top: [] };

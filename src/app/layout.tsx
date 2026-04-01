@@ -33,7 +33,10 @@ export default function RootLayout({
         <TooltipProvider>
           <div className="flex min-h-screen">
             <Sidebar />
-            <main className="flex-1 overflow-auto">{children}</main>
+            <main className="flex-1 overflow-auto relative">
+              <div className="pointer-events-none absolute inset-x-0 top-0 h-32 bg-gradient-to-b from-primary/[0.02] to-transparent" />
+              <div className="relative">{children}</div>
+            </main>
           </div>
           <Toaster theme="dark" richColors position="bottom-right" />
         </TooltipProvider>

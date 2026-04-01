@@ -130,7 +130,7 @@ export default function TrendsPage() {
   }, [keywords, timeRange]);
 
   return (
-    <div className="p-8 max-w-6xl mx-auto space-y-6">
+    <div className="p-8 max-w-6xl mx-auto space-y-6 animate-fade-in-up">
       <div>
         <h1 className="text-3xl font-bold tracking-tight">Google Trends</h1>
         <p className="text-muted-foreground mt-1">
@@ -218,7 +218,8 @@ export default function TrendsPage() {
 
       {/* Chart */}
       {chartData.length > 0 && (
-        <Card>
+        <Card className="relative overflow-hidden">
+          <div className="absolute inset-x-0 top-0 h-px bg-gradient-to-r from-red-500 via-blue-500 to-green-500 opacity-50" />
           <CardHeader>
             <CardTitle className="text-base">Interest Over Time</CardTitle>
           </CardHeader>

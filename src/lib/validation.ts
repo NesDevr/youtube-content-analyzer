@@ -52,7 +52,7 @@ export const youtubeSearchSchema = z.object({
   minViews: z.number().nonnegative().optional(),
   minDuration: z.number().nonnegative().optional(),
   maxDuration: z.number().positive().optional(),
-  videoType: z.enum(["any", "short", "long"]).optional(),
+  videoType: z.enum(["any", "short", "medium", "long"]).optional(),
   publishedAfter: z.string().optional(),
   publishedBefore: z.string().optional(),
   language: z.string().optional(),
@@ -83,6 +83,10 @@ export const aiSummarizeSchema = z.object({
   transcript: z.string().min(1),
 });
 
+export const videoAnalyzerSchema = z.object({
+  urls: z.string().min(1),
+});
+
 // ── Keywords Schema ─────────────────────────────────────
 
 export const keywordsAiSchema = z.object({
@@ -96,6 +100,41 @@ export const trendsSchema = z.object({
   keywords: z.array(z.string().min(1)).min(1).max(5),
   timeRange: z.enum(["now 7-d", "today 1-m", "today 3-m", "today 12-m", "today 5-y"]).optional(),
   action: z.enum(["interestOverTime", "relatedQueries", "regionalInterest"]).optional(),
+});
+
+// ── Channel Starter Schemas ─────────────────────────────
+
+const userProfileSchema = z.object({
+  interests: z.array(z.string()).max(10),
+  skills: z.array(z.string()).max(10),
+  constraints: z.object({
+    faceless: z.boolean(),
+    budget: z.enum(["low", "medium", "high"]),
+    hoursPerWeek: z.number().min(1).max(80),
+  }),
+  goals: z.array(z.string()).max(5),
+  contentType: z.enum(["long-form", "short-form", "both", "shorts"]),
+});
+
+export const channelStarterDiscoverSchema = z.object({
+  profile: userProfileSchema.nullable(),
+});
+
+export const channelStarterDeepDiveSchema = z.object({
+  discoveryId: z.number().int().positive(),
+  nicheName: z.string().min(1),
+  searchKeywords: z.array(z.string().min(1)).min(1).max(5),
+});
+
+export const channelStarterStrategySchema = z.object({
+  discoveryId: z.number().int().positive(),
+  nicheName: z.string().min(1),
+  profile: userProfileSchema.nullable().optional(),
+});
+
+export const channelStarterContentPlanSchema = z.object({
+  discoveryId: z.number().int().positive(),
+  nicheName: z.string().min(1),
 });
 
 // ── Helpers ─────────────────────────────────────────────

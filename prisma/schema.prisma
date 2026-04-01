@@ -19,12 +19,23 @@ model Video {
   publishedAt  DateTime
   thumbnailUrl String
   description  String        @default("")
+  transcript   String?
   outlierScore Float?
   viewsPerHour Float?
   savedAt      DateTime      @default(now())
   folders      FolderVideo[]
 
   @@index([channelId])
+}
+
+model VideoAnalysis {
+  id             Int      @id @default(autoincrement())
+  videoIds       String
+  analysisResult String
+  inspirations   String
+  createdAt      DateTime @default(now())
+
+  @@index([createdAt])
 }
 
 model Channel {
@@ -81,4 +92,33 @@ model IdeaGeneration {
 
   @@index([folderId])
   @@index([panelId])
+}
+
+model AiCache {
+  id        Int      @id @default(autoincrement())
+  inputHash String   @unique
+  endpoint  String
+  response  String
+  createdAt DateTime @default(now())
+
+  @@index([inputHash])
+}
+
+model NicheDiscovery {
+  id            Int      @id @default(autoincrement())
+  interests     String?
+  skills        String?
+  constraints   String?
+  goals         String?
+  contentType   String?
+  niches        String?
+  selectedNiche String?
+  deepDive      String?
+  strategy      String?
+  contentPlan   String?
+  completedStep Int      @default(0)
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  @@index([createdAt])
 }

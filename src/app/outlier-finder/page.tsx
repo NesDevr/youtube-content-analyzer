@@ -284,7 +284,7 @@ export default function OutlierFinderPage() {
   }, []);
 
   return (
-    <div className="p-8 max-w-6xl mx-auto space-y-6">
+    <div className="p-8 max-w-6xl mx-auto space-y-6 animate-fade-in-up">
       <div>
         <h1 className="text-3xl font-bold tracking-tight">Outlier Finder</h1>
         <p className="text-muted-foreground mt-1">
@@ -294,7 +294,8 @@ export default function OutlierFinderPage() {
       </div>
 
       {/* Search bar */}
-      <Card>
+      <Card className="relative overflow-hidden">
+        <div className="absolute inset-x-0 top-0 h-px brand-gradient" />
         <CardContent className="pt-6">
           <div className="flex gap-3">
             <div className="flex-1">
@@ -330,10 +331,10 @@ export default function OutlierFinderPage() {
               <button
                 key={preset.label}
                 onClick={() => applyPreset(preset)}
-                className={`inline-flex items-center rounded-full px-3 py-1 text-xs font-medium transition-colors cursor-pointer ${
+                className={`inline-flex items-center rounded-full px-3 py-1.5 text-xs font-medium transition-all duration-200 cursor-pointer border ${
                   activePreset === preset.label
-                    ? "bg-primary text-primary-foreground"
-                    : "bg-muted text-muted-foreground hover:bg-accent hover:text-accent-foreground"
+                    ? "bg-primary/15 text-primary border-primary/30 shadow-sm shadow-primary/10"
+                    : "bg-muted/50 text-muted-foreground border-transparent hover:bg-accent hover:text-accent-foreground hover:border-border"
                 }`}
                 title={preset.description}
               >
@@ -498,13 +499,14 @@ export default function OutlierFinderPage() {
 
       {/* Loading */}
       {loading && (
-        <div className="flex items-center justify-center py-20">
-          <div className="text-center space-y-3">
-            <Loader2 className="h-8 w-8 animate-spin mx-auto text-muted-foreground" />
-            <p className="text-sm text-muted-foreground">
-              Searching YouTube and calculating outlier scores...
-            </p>
+        <div className="flex flex-col items-center justify-center py-20">
+          <div className="relative">
+            <Loader2 className="h-8 w-8 animate-spin text-primary" />
+            <div className="absolute inset-0 h-8 w-8 rounded-full bg-primary/20 animate-ping" />
           </div>
+          <p className="text-sm text-muted-foreground mt-4">
+            Searching YouTube and calculating outlier scores...
+          </p>
         </div>
       )}
 

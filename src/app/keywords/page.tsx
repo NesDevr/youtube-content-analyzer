@@ -131,7 +131,7 @@ export default function KeywordsPage() {
   );
 
   return (
-    <div className="p-8 max-w-6xl mx-auto space-y-6">
+    <div className="p-8 max-w-6xl mx-auto space-y-6 animate-fade-in-up">
       <div>
         <h1 className="text-3xl font-bold tracking-tight">Keyword Research</h1>
         <p className="text-muted-foreground mt-1">
@@ -179,7 +179,8 @@ export default function KeywordsPage() {
 
           <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
             {/* Autocomplete Results */}
-            <Card>
+            <Card className="relative overflow-hidden">
+              <div className="absolute inset-x-0 top-0 h-px bg-blue-500/50" />
               <CardHeader>
                 <CardTitle className="text-base flex items-center gap-2">
                   <Search className="h-4 w-4" />
@@ -211,7 +212,8 @@ export default function KeywordsPage() {
             </Card>
 
             {/* AI Keywords */}
-            <Card>
+            <Card className="relative overflow-hidden">
+              <div className="absolute inset-x-0 top-0 h-px bg-purple-500/50" />
               <CardHeader>
                 <CardTitle className="text-base flex items-center gap-2">
                   <Sparkles className="h-4 w-4" />

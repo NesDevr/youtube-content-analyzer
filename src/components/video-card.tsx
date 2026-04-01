@@ -139,11 +139,11 @@ export const VideoCard = React.memo(function VideoCard({
   const [thumbnailOpen, setThumbnailOpen] = useState(false);
 
   return (
-    <Card className="overflow-hidden hover:border-primary/30 transition-colors group">
+    <Card className="overflow-hidden hover:ring-primary/25 hover:shadow-lg hover:shadow-primary/5 transition-all duration-200 group">
       <div className="flex gap-4 p-4">
         {/* Thumbnail */}
         <div
-          className="relative flex-shrink-0 w-48 h-28 rounded-lg overflow-hidden bg-muted cursor-pointer"
+          className="relative flex-shrink-0 w-48 h-28 rounded-lg overflow-hidden bg-muted cursor-pointer group/thumb"
           onClick={() => setThumbnailOpen(true)}
         >
           {onSelect && (
@@ -161,8 +161,9 @@ export const VideoCard = React.memo(function VideoCard({
             alt={video.title}
             fill
             sizes="192px"
-            className="object-cover"
+            className="object-cover transition-transform duration-300 group-hover/thumb:scale-105"
           />
+          <div className="absolute inset-0 bg-black/0 group-hover/thumb:bg-black/10 transition-colors" />
           <div className="absolute bottom-1 right-1 bg-black/80 text-white text-xs px-1.5 py-0.5 rounded">
             {formatDuration(video.duration)}
           </div>

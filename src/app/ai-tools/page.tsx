@@ -138,7 +138,7 @@ export default function AIToolsPage() {
   };
 
   return (
-    <div className="p-8 max-w-6xl mx-auto space-y-6">
+    <div className="p-8 max-w-6xl mx-auto space-y-6 animate-fade-in-up">
       <div>
         <h1 className="text-3xl font-bold tracking-tight">AI Tools</h1>
         <p className="text-muted-foreground mt-1">
@@ -229,8 +229,9 @@ export default function AIToolsPage() {
             <div className="space-y-4">
               <h2 className="text-lg font-semibold">Generated Video Ideas</h2>
               {ideas.map((idea, i) => (
-                <Card key={i}>
-                  <CardHeader className="pb-3">
+                <Card key={i} className="relative overflow-hidden">
+                  <div className="absolute left-0 inset-y-0 w-1 bg-gradient-to-b from-yellow-500 to-orange-500 rounded-l-xl" />
+                  <CardHeader className="pb-3 pl-6">
                     <div className="flex items-center gap-2">
                       <Badge variant="secondary">Idea {i + 1}</Badge>
                       <CardTitle className="text-base">{idea.topic}</CardTitle>
