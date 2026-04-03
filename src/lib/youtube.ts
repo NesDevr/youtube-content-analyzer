@@ -1,4 +1,3 @@
-import { prisma } from "./prisma";
 import { YOUTUBE_API_KEY } from "./env";
 import type { VideoResult, SearchFilters } from "@/types/video";
 
@@ -95,39 +94,32 @@ export async function searchVideos(
 export async function getVideoDetails(videoIds: string[]): Promise<VideoResult[]> {
   if (videoIds.length === 0) return [];
 
-  // Batch in groups of 50 (API limit)
   const results: VideoResult[] = [];
   for (let i = 0; i < videoIds.length; i += 50) {
     const batch = videoIds.slice(i, i + 50);
-
-    // Check cache first
-    const cached = await prisma.video.findMany({
-      where: { id: { in: batch } },
+    const params = new URLSearchParams({
+      part: "snippet,statistics,contentDetails",
+      id: batch.join(","),
+      key: API_KEY,
     });
-    const cachedIds = new Set(cached.map((v) => v.id));
-    const uncachedIds = batch.filter((id) => !cachedIds.has(id));
 
-    // Fetch uncached from YouTube API
-    if (uncachedIds.length > 0) {
-      const params = new URLSearchParams({
-        part: "snippet,statistics,contentDetails",
-        id: uncachedIds.join(","),
-        key: API_KEY,
-      });
+    const res = await fetch(`${BASE_URL}/videos?${params}`);
+    if (!res.ok) {
+      const err = await res.text();
+      throw new Error(`YouTube video details failed: ${err}`);
+    }
+    const data = await res.json();
 
-      const res = await fetch(`${BASE_URL}/videos?${params}`);
-      if (!res.ok) {
-        const err = await res.text();
-        throw new Error(`YouTube video details failed: ${err}`);
-      }
-      const data = await res.json();
-
-      const newVideos = (data.items || []).map((item: { id: string; snippet: { title: string; channelId: string; channelTitle: string; publishedAt: string; thumbnails?: { high?: { url: string }; medium?: { url: string }; default?: { url: string } }; description?: string }; statistics: { viewCount?: string; likeCount?: string; commentCount?: string }; contentDetails: { duration: string } }) => ({
+    for (const item of data.items || []) {
+      const hoursAge =
+        (Date.now() - new Date(item.snippet.publishedAt).getTime()) / (1000 * 60 * 60);
+      const views = parseInt(item.statistics.viewCount || "0");
+      results.push({
         id: item.id,
         title: item.snippet.title,
         channelId: item.snippet.channelId,
         channelName: item.snippet.channelTitle,
-        views: parseInt(item.statistics.viewCount || "0"),
+        views,
         likes: parseInt(item.statistics.likeCount || "0"),
         comments: parseInt(item.statistics.commentCount || "0"),
         duration: item.contentDetails.duration,
@@ -138,51 +130,8 @@ export async function getVideoDetails(videoIds: string[]): Promise<VideoResult[]
           item.snippet.thumbnails?.default?.url ||
           "",
         description: (item.snippet.description || "").slice(0, 500),
-      }));
-
-      // Batch cache in DB
-      if (newVideos.length > 0) {
-        await prisma.$transaction(
-          newVideos.map((video: { id: string; title: string; channelId: string; channelName: string; views: number; likes: number; comments: number; duration: string; publishedAt: string; thumbnailUrl: string; description: string }) =>
-            prisma.video.upsert({
-              where: { id: video.id },
-              update: { ...video, publishedAt: new Date(video.publishedAt) },
-              create: { ...video, publishedAt: new Date(video.publishedAt) },
-            })
-          )
-        );
-      }
-
-      for (const video of newVideos) {
-        cached.push({
-          ...video,
-          publishedAt: new Date(video.publishedAt),
-          outlierScore: null,
-          viewsPerHour: null,
-          savedAt: new Date(),
-        });
-      }
-    }
-
-    // Convert cached videos to results (without channel stats yet)
-    for (const v of cached) {
-      if (!batch.includes(v.id)) continue;
-      const hoursAge =
-        (Date.now() - new Date(v.publishedAt).getTime()) / (1000 * 60 * 60);
-      results.push({
-        id: v.id,
-        title: v.title,
-        channelId: v.channelId,
-        channelName: v.channelName,
-        views: v.views,
-        likes: v.likes,
-        comments: v.comments,
-        duration: v.duration,
-        publishedAt: new Date(v.publishedAt).toISOString(),
-        thumbnailUrl: v.thumbnailUrl,
-        description: v.description,
         outlierScore: null,
-        viewsPerHour: Math.round(v.views / Math.max(hoursAge, 1)),
+        viewsPerHour: Math.round(views / Math.max(hoursAge, 1)),
         channelSubscribers: null,
         channelAverageViews: null,
         engagementRate: null,
@@ -207,31 +156,9 @@ export async function getChannelStats(
 
   for (let i = 0; i < uniqueIds.length; i += 50) {
     const batch = uniqueIds.slice(i, i + 50);
-
-    // Check cache (only if fetched recently — within 24h)
-    const oneDayAgo = new Date(Date.now() - 24 * 60 * 60 * 1000);
-    const cached = await prisma.channel.findMany({
-      where: {
-        id: { in: batch },
-        lastFetched: { gte: oneDayAgo },
-      },
-    });
-    const cachedIds = new Set(cached.map((c) => c.id));
-
-    for (const c of cached) {
-      statsMap.set(c.id, {
-        subscribers: c.subscribers,
-        averageViews: c.averageViews || 0,
-        name: c.name,
-      });
-    }
-
-    const uncachedIds = batch.filter((id) => !cachedIds.has(id));
-    if (uncachedIds.length === 0) continue;
-
     const params = new URLSearchParams({
       part: "snippet,statistics",
-      id: uncachedIds.join(","),
+      id: batch.join(","),
       key: API_KEY,
     });
 
@@ -239,44 +166,12 @@ export async function getChannelStats(
     if (!res.ok) continue;
     const data = await res.json();
 
-    const channelItems = (data.items || []).map((item: { id: string; snippet: { title: string }; statistics: { subscriberCount?: string; viewCount?: string; videoCount?: string } }) => {
+    for (const item of data.items || []) {
       const subscribers = parseInt(item.statistics.subscriberCount || "0");
       const totalViews = parseInt(item.statistics.viewCount || "0");
       const videoCount = parseInt(item.statistics.videoCount || "1");
       const averageViews = videoCount > 0 ? totalViews / videoCount : 0;
-      return { id: item.id, name: item.snippet.title, subscribers, totalViews, videoCount, averageViews };
-    });
-
-    // Batch upsert channels
-    if (channelItems.length > 0) {
-      await prisma.$transaction(
-        channelItems.map((ch: { id: string; name: string; subscribers: number; totalViews: number; videoCount: number; averageViews: number }) =>
-          prisma.channel.upsert({
-            where: { id: ch.id },
-            update: {
-              name: ch.name,
-              subscribers: ch.subscribers,
-              totalViews: BigInt(ch.totalViews),
-              videoCount: ch.videoCount,
-              averageViews: ch.averageViews,
-              lastFetched: new Date(),
-            },
-            create: {
-              id: ch.id,
-              name: ch.name,
-              subscribers: ch.subscribers,
-              totalViews: BigInt(ch.totalViews),
-              videoCount: ch.videoCount,
-              averageViews: ch.averageViews,
-              lastFetched: new Date(),
-            },
-          })
-        )
-      );
-    }
-
-    for (const ch of channelItems) {
-      statsMap.set(ch.id, { subscribers: ch.subscribers, averageViews: ch.averageViews, name: ch.name });
+      statsMap.set(item.id, { subscribers, averageViews, name: item.snippet.title });
     }
   }
 
@@ -375,21 +270,6 @@ export async function findOutliers(filters: SearchFilters): Promise<VideoResult[
   // 6. Sort by outlier score descending and limit to requested count
   filtered.sort((a, b) => (b.outlierScore || 0) - (a.outlierScore || 0));
   const results = filtered.slice(0, targetCount);
-
-  // 7. Batch update outlier scores in DB
-  if (results.length > 0) {
-    await prisma.$transaction(
-      results.map((v) =>
-        prisma.video.update({
-          where: { id: v.id },
-          data: {
-            outlierScore: v.outlierScore,
-            viewsPerHour: v.viewsPerHour,
-          },
-        })
-      )
-    );
-  }
 
   return results;
 }
