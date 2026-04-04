@@ -1,6 +1,50 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
+import { findOutliers } from "@/lib/youtube";
 import { panelActionSchema, parseBody } from "@/lib/validation";
+
+function getDateRange(preset: string): { after?: string } {
+  if (!preset) return {};
+  const now = new Date();
+  const map: Record<string, number> = {
+    "7d": 7,
+    "30d": 30,
+    "3m": 90,
+    "6m": 180,
+    "1y": 365,
+    "2y": 730,
+  };
+  const days = map[preset] || 0;
+  if (!days) return {};
+  const after = new Date(now.getTime() - days * 24 * 60 * 60 * 1000);
+  return { after: after.toISOString() };
+}
+
+interface PanelFilters {
+  maxSubscribers?: number | null;
+  minViews?: number | null;
+  minDuration?: number | null;
+  maxDuration?: number | null;
+  minEngagement?: number | null;
+  datePreset?: string;
+  language?: string;
+  sortBy?: string;
+}
+
+async function runSearch(keyword: string, filters: PanelFilters) {
+  const dateRange = getDateRange(filters.datePreset || "");
+  return findOutliers({
+    keyword,
+    maxSubscribers: filters.maxSubscribers ?? undefined,
+    minViews: filters.minViews ?? undefined,
+    minDuration: filters.minDuration ?? undefined,
+    maxDuration: filters.maxDuration ?? undefined,
+    minEngagement: filters.minEngagement ?? undefined,
+    publishedAfter: dateRange.after,
+    language: filters.language || undefined,
+    maxResults: 50,
+  });
+}
 
 export async function GET() {
   try {
@@ -29,17 +73,27 @@ export async function POST(req: NextRequest) {
           name: data.name.trim(),
           keyword: data.keyword.trim(),
           filters: JSON.stringify(data.filters || {}),
+          results: JSON.stringify(data.results || []),
         },
       });
       return NextResponse.json({ panel });
     }
 
     if (data.action === "refresh") {
-      await prisma.panel.update({
+      const panel = await prisma.panel.findUnique({ where: { id: data.id } });
+      if (!panel) {
+        return NextResponse.json({ error: "Panel not found" }, { status: 404 });
+      }
+      const filters: PanelFilters = JSON.parse(panel.filters);
+      const results = await runSearch(panel.keyword, filters);
+      const updated = await prisma.panel.update({
         where: { id: data.id },
-        data: { lastRefreshed: new Date() },
+        data: {
+          results: JSON.stringify(results),
+          lastRefreshed: new Date(),
+        },
       });
-      return NextResponse.json({ success: true });
+      return NextResponse.json({ panel: updated });
     }
 
     return NextResponse.json({ error: "Invalid action" }, { status: 400 });

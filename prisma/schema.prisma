@@ -73,6 +73,7 @@ model Panel {
   name            String
   keyword         String
   filters         String // JSON blob of filter settings
+  results         String           @default("[]") // JSON blob of video results
   createdAt       DateTime         @default(now())
   lastRefreshed   DateTime?
   ideaGenerations IdeaGeneration[]

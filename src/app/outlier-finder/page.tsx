@@ -14,9 +14,11 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { VideoCard } from "@/components/video-card";
-import { Search, Loader2, Save, SlidersHorizontal } from "lucide-react";
+import { Search, Loader2, Save, SlidersHorizontal, Trash2, Play, ChevronDown, ChevronUp, RefreshCw } from "lucide-react";
 import { toast } from "sonner";
 import { useFolders } from "@/hooks/use-folders";
+import { usePanels } from "@/hooks/use-panels";
+import type { PanelFilters } from "@/hooks/use-panels";
 import type { VideoResult } from "@/types/video";
 
 interface FilterPreset {
@@ -100,6 +102,7 @@ const DATE_PRESETS = [
   { label: "Last 7 days", value: "7d" },
   { label: "Last 30 days", value: "30d" },
   { label: "Last 3 months", value: "3m" },
+  { label: "Last 6 months", value: "6m" },
   { label: "Last year", value: "1y" },
   { label: "Last 2 years", value: "2y" },
 ];
@@ -111,6 +114,7 @@ function getDateRange(preset: string): { after?: string; before?: string } {
     "7d": 7,
     "30d": 30,
     "3m": 90,
+    "6m": 180,
     "1y": 365,
     "2y": 730,
   };
@@ -162,6 +166,8 @@ export default function OutlierFinderPage() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
   const { folders } = useFolders();
+  const { panels, refresh: refreshPanels, deletePanel } = usePanels();
+  const [showSavedSearches, setShowSavedSearches] = useState(false);
   const [selectedVideos, setSelectedVideos] = useState<Set<string>>(new Set());
 
   const handleSearch = useCallback(async () => {
@@ -244,18 +250,89 @@ export default function OutlierFinderPage() {
             minEngagement: minEngagement ? parseFloat(minEngagement) : null,
             datePreset,
             language,
+            sortBy,
           },
+          results,
         }),
       });
       if (res.ok) {
-        toast.success("Panel saved");
+        toast.success("Search saved");
+        refreshPanels();
       } else {
-        toast.error("Failed to save panel");
+        toast.error("Failed to save search");
       }
     } catch {
-      toast.error("Failed to save panel");
+      toast.error("Failed to save search");
     }
-  }, [keyword, maxSubs, minViews, minDuration, maxDuration, minEngagement, datePreset, language]);
+  }, [keyword, maxSubs, minViews, minDuration, maxDuration, minEngagement, datePreset, language, sortBy, results, refreshPanels]);
+
+  const loadPanel = useCallback((panelKeyword: string, filtersJson: string, resultsJson: string) => {
+    try {
+      const f: PanelFilters = JSON.parse(filtersJson);
+      setKeyword(panelKeyword);
+      setMaxSubs(f.maxSubscribers ? String(f.maxSubscribers) : "");
+      setMinViews(f.minViews ? String(f.minViews) : "");
+      setMinDuration(f.minDuration ? String(f.minDuration) : "");
+      setMaxDuration(f.maxDuration ? String(f.maxDuration) : "");
+      setMinEngagement(f.minEngagement ? String(f.minEngagement) : "");
+      setDatePreset(f.datePreset || "");
+      setLanguage(f.language || "");
+      setSortBy(f.sortBy || "outlier_score");
+      setShowFilters(true);
+      setActivePreset(null);
+      const savedResults = JSON.parse(resultsJson || "[]");
+      setResults(savedResults);
+      setSelectedVideos(new Set());
+    } catch {
+      setKeyword(panelKeyword);
+    }
+  }, []);
+
+  const [refreshingPanelId, setRefreshingPanelId] = useState<number | null>(null);
+
+  const handleDeletePanel = useCallback(async (id: number) => {
+    await deletePanel(id);
+    toast.success("Saved search deleted");
+  }, [deletePanel]);
+
+  const handleRefreshPanel = useCallback(async (id: number) => {
+    setRefreshingPanelId(id);
+    try {
+      const res = await fetch("/api/panels", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action: "refresh", id }),
+      });
+      if (res.ok) {
+        const data = await res.json();
+        const updated = data.panel;
+        const savedResults = JSON.parse(updated.results || "[]");
+        setResults(savedResults);
+        setSelectedVideos(new Set());
+        // Restore filters from the panel
+        const f: PanelFilters = JSON.parse(updated.filters || "{}");
+        setKeyword(updated.keyword);
+        setMaxSubs(f.maxSubscribers ? String(f.maxSubscribers) : "");
+        setMinViews(f.minViews ? String(f.minViews) : "");
+        setMinDuration(f.minDuration ? String(f.minDuration) : "");
+        setMaxDuration(f.maxDuration ? String(f.maxDuration) : "");
+        setMinEngagement(f.minEngagement ? String(f.minEngagement) : "");
+        setDatePreset(f.datePreset || "");
+        setLanguage(f.language || "");
+        setSortBy(f.sortBy || "outlier_score");
+        setShowFilters(true);
+        setActivePreset(null);
+        await refreshPanels();
+        toast.success("Search refreshed");
+      } else {
+        toast.error("Failed to refresh search");
+      }
+    } catch {
+      toast.error("Failed to refresh search");
+    } finally {
+      setRefreshingPanelId(null);
+    }
+  }, [refreshPanels]);
 
   const sortedResults = useMemo(() => {
     return [...results].sort((a, b) => {
@@ -470,6 +547,59 @@ export default function OutlierFinderPage() {
         </CardContent>
       </Card>
 
+      {/* Saved Searches */}
+      {panels.length > 0 && (
+        <div>
+          <button
+            onClick={() => setShowSavedSearches(!showSavedSearches)}
+            className="flex items-center gap-2 text-sm text-muted-foreground hover:text-foreground transition-colors"
+          >
+            <Save className="h-4 w-4" />
+            Saved Searches ({panels.length})
+            {showSavedSearches ? <ChevronUp className="h-3 w-3" /> : <ChevronDown className="h-3 w-3" />}
+          </button>
+          {showSavedSearches && (
+            <div className="flex flex-wrap gap-2 mt-3">
+              {panels.map((panel) => {
+                const resultCount = JSON.parse(panel.results || "[]").length;
+                return (
+                  <div
+                    key={panel.id}
+                    className="group flex items-center gap-2 rounded-lg border bg-card px-3 py-2 text-sm transition-colors hover:bg-accent"
+                  >
+                    <button
+                      onClick={() => loadPanel(panel.keyword, panel.filters, panel.results)}
+                      className="flex items-center gap-2 cursor-pointer"
+                    >
+                      <Play className="h-3 w-3 text-primary" />
+                      <span className="font-medium">{panel.name}</span>
+                      <span className="text-muted-foreground text-xs">
+                        {resultCount} videos
+                      </span>
+                    </button>
+                    <button
+                      onClick={() => handleRefreshPanel(panel.id)}
+                      disabled={refreshingPanelId === panel.id}
+                      className="opacity-0 group-hover:opacity-100 transition-opacity text-muted-foreground hover:text-primary cursor-pointer disabled:opacity-50"
+                      title="Refresh results"
+                    >
+                      <RefreshCw className={`h-3 w-3 ${refreshingPanelId === panel.id ? "animate-spin" : ""}`} />
+                    </button>
+                    <button
+                      onClick={() => handleDeletePanel(panel.id)}
+                      className="opacity-0 group-hover:opacity-100 transition-opacity text-muted-foreground hover:text-destructive cursor-pointer"
+                      title="Delete"
+                    >
+                      <Trash2 className="h-3 w-3" />
+                    </button>
+                  </div>
+                );
+              })}
+            </div>
+          )}
+        </div>
+      )}
+
       {/* Actions bar */}
       {results.length > 0 && (
         <div className="flex items-center justify-between">
@@ -482,7 +612,7 @@ export default function OutlierFinderPage() {
           <div className="flex gap-2">
             <Button variant="outline" size="sm" onClick={handleSavePanel}>
               <Save className="h-4 w-4 mr-1" />
-              Save as Panel
+              Save Search
             </Button>
           </div>
         </div>

@@ -32,6 +32,7 @@ const createPanelSchema = z.object({
   name: z.string().min(1).max(100),
   keyword: z.string().min(1),
   filters: z.record(z.string(), z.unknown()).optional(),
+  results: z.array(z.record(z.string(), z.unknown())).optional(),
 });
 
 const refreshPanelSchema = z.object({

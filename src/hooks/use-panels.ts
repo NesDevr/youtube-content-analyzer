@@ -2,11 +2,25 @@
 
 import { useState, useEffect, useCallback } from "react";
 
+export interface PanelFilters {
+  maxSubscribers?: number | null;
+  minViews?: number | null;
+  minDuration?: number | null;
+  maxDuration?: number | null;
+  minEngagement?: number | null;
+  datePreset?: string;
+  language?: string;
+  sortBy?: string;
+}
+
 export interface PanelSummary {
   id: number;
   name: string;
   keyword: string;
+  filters: string;
+  results: string;
   lastRefreshed: string | null;
+  createdAt: string;
 }
 
 export function usePanels() {
@@ -32,5 +46,15 @@ export function usePanels() {
     refresh();
   }, [refresh]);
 
-  return { panels, error, loading, refresh };
+  const deletePanel = useCallback(async (id: number) => {
+    try {
+      const res = await fetch(`/api/panels?id=${id}`, { method: "DELETE" });
+      if (!res.ok) throw new Error("Failed to delete panel");
+      await refresh();
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Failed to delete panel");
+    }
+  }, [refresh]);
+
+  return { panels, error, loading, refresh, deletePanel };
 }
