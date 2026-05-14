@@ -2,6 +2,8 @@
 
 Full-stack YouTube research platform for creators and content teams. YT Analyzer helps find outlier videos, analyze transcripts, compare trends, research keywords, and generate AI-assisted content ideas.
 
+![OutlierFinder](public/screenshots/outlier-finder.png)
+
 Built with **Next.js 16**, **React 19**, **TypeScript**, **Tailwind CSS 4**, **Prisma**, **SQLite**, **Google Gemini**, **YouTube Data API**, and **Google Trends**.
 
 ## Features
@@ -12,28 +14,6 @@ Built with **Next.js 16**, **React 19**, **TypeScript**, **Tailwind CSS 4**, **P
 - **Google Trends** - Compare keyword interest over time and inspect rising queries and regional interest.
 - **AI Tools** - Generate ideas from saved folders and summarize videos.
 - **Folders** - Save videos into collections for later research and batch analysis.
-
-## Screenshots To Add
-
-Add screenshots to `public/screenshots/` and update these placeholders when ready:
-
-| Screen | Suggested file | What to show |
-|--------|----------------|--------------|
-| Dashboard | `public/screenshots/dashboard.png` | Main navigation and overall product surface |
-| Outlier Finder | `public/screenshots/outlier-finder.png` | Search results with filters and outlier scores |
-| Video Analyzer | `public/screenshots/video-analyzer.png` | Transcript analysis and generated insights |
-| Trends | `public/screenshots/trends.png` | Keyword comparison chart and rising queries |
-| Folders / AI Tools | `public/screenshots/folders-ai-tools.png` | Saved research workflow or idea generation |
-
-## Demo Safety
-
-Do not deploy an unrestricted public demo with real API keys. Public users could consume YouTube/Gemini quota or create unexpected costs.
-
-Safer portfolio options:
-
-- Publish the repo with screenshots only.
-- Deploy behind a password for selected reviewers.
-- Add a demo mode that uses mock data instead of calling external APIs.
 
 ## API Setup
 
