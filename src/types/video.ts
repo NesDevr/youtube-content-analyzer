@@ -8,6 +8,8 @@ export interface VideoResult {
   comments: number;
   duration: string;
   publishedAt: string;
+  defaultLanguage: string | null;
+  defaultAudioLanguage: string | null;
   thumbnailUrl: string;
   description: string;
   outlierScore: number | null;

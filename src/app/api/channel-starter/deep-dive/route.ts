@@ -39,7 +39,7 @@ export async function POST(req: NextRequest) {
       { keyword: primaryKeyword, videoType: searchVideoType },
       1
     );
-    let videos = await getVideoDetails(videoIds);
+    const videos = await getVideoDetails(videoIds);
 
     const channelIds = videos.map((v) => v.channelId);
     const channelStats = await getChannelStats(channelIds);

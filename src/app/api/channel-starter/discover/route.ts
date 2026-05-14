@@ -110,7 +110,7 @@ async function validateNiche(
     }
 
     // Get video details + channel stats
-    let videos = await getVideoDetails(videoIds.slice(0, 20));
+    const videos = await getVideoDetails(videoIds.slice(0, 20));
 
     const channelIds = videos.map((v) => v.channelId);
     const channelStats = await getChannelStats(channelIds);

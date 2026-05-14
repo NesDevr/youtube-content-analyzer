@@ -508,7 +508,10 @@ export default function OutlierFinderPage() {
                 <Label className="text-xs text-muted-foreground">
                   Language
                 </Label>
-                <Select value={language} onValueChange={(v) => setLanguage(v ?? "")}>
+                <Select
+                  value={language || "any_lang"}
+                  onValueChange={(v) => setLanguage(!v || v === "any_lang" ? "" : v)}
+                >
                   <SelectTrigger>
                     <SelectValue placeholder="Any" />
                   </SelectTrigger>

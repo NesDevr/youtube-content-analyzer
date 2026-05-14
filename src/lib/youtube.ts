@@ -5,6 +5,7 @@ export type { VideoResult, SearchFilters };
 
 const API_KEY = YOUTUBE_API_KEY;
 const BASE_URL = "https://www.googleapis.com/youtube/v3";
+const MAX_SEARCH_VARIANTS = 6;
 
 // ── Helpers ────────────────────────────────────────────
 
@@ -22,14 +23,58 @@ function durationMinutes(iso: string): number {
   return parseDuration(iso) / 60;
 }
 
+function hasNonEnglishTextSignals(video: VideoResult): boolean {
+  const text = `${video.title} ${video.channelName} ${video.description}`;
+  const nonLatinScript =
+    /[\u0900-\u097F\u0980-\u09FF\u0A00-\u0A7F\u0B00-\u0B7F\u0B80-\u0D7F\u0E00-\u0E7F\u3040-\u30FF\u3400-\u4DBF\u4E00-\u9FFF\uAC00-\uD7AF\u0600-\u06FF\u0400-\u04FF]/u;
+  const nonEnglishLanguageLabel =
+    /\b(hindi|telugu|tamil|kannada|malayalam|bengali|marathi|gujarati|punjabi|urdu|spanish|portuguese|french|german|japanese|korean)\b/i;
+  const transliteratedHindiMarker =
+    /\b(aahat|amavas|bhoot|bhootiya|bhutiya|chhalava|chudail|daak|deyyam|ghar|jinn|kahani|kahaniya|masaan|nazar|pishachini|shaapit|yakshini)\b/i;
+  return (
+    nonLatinScript.test(text) ||
+    nonEnglishLanguageLabel.test(text) ||
+    transliteratedHindiMarker.test(text)
+  );
+}
+
 // ── API Calls ──────────────────────────────────────────
 
-function buildSearchParams(filters: SearchFilters): URLSearchParams {
+async function getSearchQuery(filters: SearchFilters, expandKeyword: boolean): Promise<string> {
+  if (!expandKeyword) return filters.keyword;
+
+  const url = `https://suggestqueries-clients6.youtube.com/complete/search?client=youtube&ds=yt&q=${encodeURIComponent(filters.keyword)}`;
+  const res = await fetch(url, {
+    headers: { "User-Agent": "Mozilla/5.0" },
+  });
+  if (!res.ok) {
+    throw new Error(`YouTube autocomplete failed: ${await res.text()}`);
+  }
+
+  const text = await res.text();
+  const match = text.match(/\[[\s\S]*\]/);
+  if (!match) {
+    throw new Error("YouTube autocomplete returned an unexpected response");
+  }
+
+  const data = JSON.parse(match[0]);
+  const suggestions = (data[1] || []).map((item: [string]) => item[0]);
+  const variants = [filters.keyword, ...suggestions]
+    .map((keyword) => keyword.trim())
+    .filter(Boolean);
+  const uniqueVariants = [...new Map(
+    variants.map((keyword) => [keyword.toLowerCase(), keyword])
+  ).values()];
+
+  return uniqueVariants.slice(0, MAX_SEARCH_VARIANTS).join("|");
+}
+
+function buildSearchParams(filters: SearchFilters, query: string): URLSearchParams {
   const params = new URLSearchParams({
     part: "snippet",
-    q: filters.keyword,
+    q: query,
     type: "video",
-    order: "viewCount",
+    order: "relevance",
     maxResults: "50",
     key: API_KEY,
   });
@@ -65,9 +110,11 @@ function hasHeavyPostFilters(filters: SearchFilters): boolean {
 
 export async function searchVideos(
   filters: SearchFilters,
-  maxPages: number = 1
+  maxPages: number = 1,
+  expandKeyword: boolean = false
 ): Promise<string[]> {
-  const params = buildSearchParams(filters);
+  const query = await getSearchQuery(filters, expandKeyword);
+  const params = buildSearchParams(filters, query);
   const allIds: string[] = [];
 
   for (let page = 0; page < maxPages; page++) {
@@ -124,6 +171,8 @@ export async function getVideoDetails(videoIds: string[]): Promise<VideoResult[]
         comments: parseInt(item.statistics.commentCount || "0"),
         duration: item.contentDetails.duration,
         publishedAt: item.snippet.publishedAt,
+        defaultLanguage: item.snippet.defaultLanguage || null,
+        defaultAudioLanguage: item.snippet.defaultAudioLanguage || null,
         thumbnailUrl:
           item.snippet.thumbnails?.high?.url ||
           item.snippet.thumbnails?.medium?.url ||
@@ -209,6 +258,16 @@ function applyPostFilters(videos: VideoResult[], filters: SearchFilters): VideoR
     );
   }
 
+  if (filters.language) {
+    const language = filters.language.toLowerCase();
+    filtered = filtered.filter((v) => {
+      const videoLanguage = v.defaultAudioLanguage || v.defaultLanguage;
+      const matchesLanguage = videoLanguage?.toLowerCase().split("-")[0] === language;
+      if (!matchesLanguage) return false;
+      return language !== "en" || !hasNonEnglishTextSignals(v);
+    });
+  }
+
   return filtered;
 }
 
@@ -252,7 +311,7 @@ export async function findOutliers(filters: SearchFilters): Promise<VideoResult[
   const maxPages = hasHeavyPostFilters(filters) ? 3 : 1;
 
   // 1. Search for videos (paginated if needed)
-  const videoIds = await searchVideos(filters, maxPages);
+  const videoIds = await searchVideos(filters, maxPages, true);
 
   // 2. Get video details
   const videos = await getVideoDetails(videoIds);
