@@ -2,8 +2,6 @@
 
 Full-stack YouTube research platform for creators and content teams. YT Analyzer helps find outlier videos, analyze transcripts, compare trends, research keywords, and generate AI-assisted content ideas.
 
-![OutlierFinder](public/screenshots/outlier-finder.png)
-
 Built with **Next.js 16**, **React 19**, **TypeScript**, **Tailwind CSS 4**, **Prisma**, **SQLite**, **Google Gemini**, **YouTube Data API**, and **Google Trends**.
 
 ## Features
@@ -14,6 +12,16 @@ Built with **Next.js 16**, **React 19**, **TypeScript**, **Tailwind CSS 4**, **P
 - **Google Trends** - Compare keyword interest over time and inspect rising queries and regional interest.
 - **AI Tools** - Generate ideas from saved folders and summarize videos.
 - **Folders** - Save videos into collections for later research and batch analysis.
+
+## Screenshots
+
+### Outlier Finder
+
+![Outlier Finder showing ranked YouTube video opportunities](public/screenshots/outlier-finder.png)
+
+### Google Trends
+
+![Google Trends showing keyword interest over time](public/screenshots/google-trends.png)
 
 ## API Setup
 
