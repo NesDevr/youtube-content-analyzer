@@ -50,12 +50,196 @@ model Channel {
   @@index([lastFetched])
 }
 
+/// A channel the user is planning, running, pausing or has archived.
+/// Deliberately separate from `Channel`, which holds public YouTube channels
+/// collected as research evidence and is shared across every workspace.
+model ChannelWorkspace {
+  id                    Int      @id @default(autoincrement())
+  name                  String   @unique
+  concept               String   @default("")
+  status                String   @default("planned") // planned | active | paused | archived
+  language              String   @default("en")
+  country               String   @default("")
+  targetAudience        String   @default("")
+  contentFormat         String   @default("long-form")
+  positioning           String   @default("")
+  constraints           String   @default("")
+  ownedYoutubeChannelId String?
+  createdAt             DateTime @default(now())
+  updatedAt             DateTime @updatedAt
+
+  folders          Folder[]
+  panels           Panel[]
+  ideaGenerations  IdeaGeneration[]
+  nicheDiscoveries NicheDiscovery[]
+  outlierAnalyses OutlierAnalysis[]
+  trackedChannels TrackedChannel[]
+  collectionJobs  CollectionJob[]
+  discoverySearches DiscoverySearch[]
+  manualObservations ManualObservation[]
+
+  @@index([status])
+}
+
+/// Qualitative evidence deliberately written by the creator or Codex after a
+/// visual review. It is never presented as an API fact or calculated metric.
+model ManualObservation {
+  id              Int      @id @default(autoincrement())
+  workspaceId     Int
+  entityType      String   // video | channel | topic
+  entityId        String
+  topic           String   @default("")
+  viewerPromise   String   @default("")
+  titleThumbnail  String   @default("")
+  formatNotes     String   @default("")
+  productionStyle String   @default("")
+  notes           String   @default("")
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+  workspace       ChannelWorkspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+
+  @@index([workspaceId, entityType, entityId])
+}
+
+/// Global, local-only limits for public YouTube Data API collection. One row
+/// (id = 1) is created on first use so the UI can make the budget explicit.
+model QuotaPolicy {
+  id                 Int      @id
+  dailyBudget        Int      @default(1000)
+  manualReserve      Int      @default(200)
+  searchCacheHours   Int      @default(24)
+  updatedAt          DateTime @updatedAt
+  quotaEvents        QuotaEvent[]
+}
+
+/// Every public Data API request attempted by the collection engine.
+model QuotaEvent {
+  id            Int      @id @default(autoincrement())
+  policyId      Int      @default(1)
+  endpoint      String
+  expectedCost  Int
+  actualCost    Int?
+  jobId         Int?
+  detail        String   @default("")
+  result        String
+  error         String?
+  createdAt     DateTime @default(now())
+  policy        QuotaPolicy @relation(fields: [policyId], references: [id], onDelete: Cascade)
+  job           CollectionJob? @relation(fields: [jobId], references: [id], onDelete: SetNull)
+
+  @@index([createdAt])
+  @@index([jobId])
+}
+
+model CollectionJob {
+  id          Int      @id @default(autoincrement())
+  workspaceId Int
+  kind        String   // discovery | refresh
+  status      String   @default("queued") // queued | running | completed | blocked | failed
+  scope       String
+  result      String?
+  error       String?
+  startedAt   DateTime?
+  completedAt DateTime?
+  createdAt   DateTime @default(now())
+  workspace   ChannelWorkspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  quotaEvents QuotaEvent[]
+
+  @@index([workspaceId, createdAt])
+  @@index([status])
+}
+
+/// A workspace chooses which public channels deserve recurring collection.
+model TrackedChannel {
+  id               Int      @id @default(autoincrement())
+  workspaceId      Int
+  channelId        String
+  priority         String   @default("tier-2") // tier-1 | tier-2 | tier-3
+  refreshSchedule  String   @default("weekly") // daily | weekly | monthly | manual
+  lastRefreshedAt  DateTime?
+  createdAt        DateTime @default(now())
+  workspace        ChannelWorkspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  snapshots        ChannelSnapshot[]
+
+  @@unique([workspaceId, channelId])
+  @@index([workspaceId, priority])
+}
+
+model ChannelSnapshot {
+  id               Int      @id @default(autoincrement())
+  trackedChannelId Int
+  channelId        String
+  subscribers      Int?
+  totalViews       BigInt?
+  videoCount       Int?
+  collectedAt      DateTime @default(now())
+  trackedChannel   TrackedChannel @relation(fields: [trackedChannelId], references: [id], onDelete: Cascade)
+
+  @@index([channelId, collectedAt])
+}
+
+model VideoSnapshot {
+  id          Int      @id @default(autoincrement())
+  videoId     String
+  channelId   String
+  views       Int?
+  likes       Int?
+  comments    Int?
+  collectedAt DateTime @default(now())
+
+  @@index([videoId, collectedAt])
+  @@index([channelId, collectedAt])
+}
+
+/// Cached discovery responses prevent identical `search.list` requests from
+/// spending quota again during the configured cache period.
+model DiscoverySearch {
+  id          Int      @id @default(autoincrement())
+  workspaceId Int
+  queryKey    String
+  query       String
+  region      String   @default("")
+  language    String   @default("")
+  scope       String
+  result      String
+  collectedAt DateTime @default(now())
+  expiresAt   DateTime
+  workspace   ChannelWorkspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+
+  @@unique([workspaceId, queryKey])
+  @@index([expiresAt])
+}
+
+/// A reproducible outlier result saved by a user in a channel workspace. This is
+/// an analysis record, not a time-series statistic snapshot (Stage 3 owns those).
+model OutlierAnalysis {
+  id                   Int              @id @default(autoincrement())
+  workspaceId          Int
+  videoId              String
+  metric               String
+  formulaVersion       String
+  sampleSize           Int
+  comparisonWindowDays Int
+  format               String
+  collectedAt          DateTime
+  result               String
+  createdAt            DateTime         @default(now())
+  workspace            ChannelWorkspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+
+  @@index([workspaceId, collectedAt])
+  @@index([videoId])
+}
+
 model Folder {
   id              Int              @id @default(autoincrement())
   name            String
+  workspaceId     Int
   createdAt       DateTime         @default(now())
   videos          FolderVideo[]
   ideaGenerations IdeaGeneration[]
+  workspace       ChannelWorkspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+
+  @@index([workspaceId])
 }
 
 model FolderVideo {
@@ -72,27 +256,33 @@ model Panel {
   id              Int              @id @default(autoincrement())
   name            String
   keyword         String
+  workspaceId     Int
   filters         String // JSON blob of filter settings
   results         String           @default("[]") // JSON blob of video results
   createdAt       DateTime         @default(now())
   lastRefreshed   DateTime?
   ideaGenerations IdeaGeneration[]
+  workspace       ChannelWorkspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
 
   @@index([createdAt])
+  @@index([workspaceId])
 }
 
 model IdeaGeneration {
-  id        Int      @id @default(autoincrement())
-  panelId   Int?
-  folderId  Int?
-  prompt    String
-  result    String // JSON blob of generated ideas
-  createdAt DateTime @default(now())
-  panel     Panel?   @relation(fields: [panelId], references: [id], onDelete: SetNull)
-  folder    Folder?  @relation(fields: [folderId], references: [id], onDelete: SetNull)
+  id          Int              @id @default(autoincrement())
+  panelId     Int?
+  folderId    Int?
+  workspaceId Int
+  prompt      String
+  result      String // JSON blob of generated ideas
+  createdAt   DateTime         @default(now())
+  panel       Panel?           @relation(fields: [panelId], references: [id], onDelete: SetNull)
+  folder      Folder?          @relation(fields: [folderId], references: [id], onDelete: SetNull)
+  workspace   ChannelWorkspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
 
   @@index([folderId])
   @@index([panelId])
+  @@index([workspaceId])
 }
 
 model AiCache {
@@ -107,6 +297,7 @@ model AiCache {
 
 model NicheDiscovery {
   id            Int      @id @default(autoincrement())
+  workspaceId   Int
   interests     String?
   skills        String?
   constraints   String?
@@ -121,5 +312,8 @@ model NicheDiscovery {
   createdAt     DateTime @default(now())
   updatedAt     DateTime @updatedAt
 
+  workspace ChannelWorkspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+
   @@index([createdAt])
+  @@index([workspaceId])
 }
