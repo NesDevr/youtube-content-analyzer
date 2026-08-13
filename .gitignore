@@ -25,6 +25,7 @@
 *.pem
 
 # debug
+*.log
 npm-debug.log*
 yarn-debug.log*
 yarn-error.log*
@@ -32,6 +33,10 @@ yarn-error.log*
 
 # local assistant settings
 .claude/settings.local.json
+
+# local planning docs
+/YOUTUBE_RESEARCH_COPILOT_PLAN.md
+/docs/stage-0-audit.md
 
 # env files (can opt-in for committing if needed)
 .env*
