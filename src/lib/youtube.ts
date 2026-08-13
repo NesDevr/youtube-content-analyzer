@@ -1,5 +1,10 @@
 import { YOUTUBE_API_KEY } from "./env";
 import type { VideoResult, SearchFilters } from "@/types/video";
+import {
+  classifyFormat,
+  legacyLifetimeAverageRatio,
+  type UploadVideo,
+} from "./metrics/outlier";
 
 export type { VideoResult, SearchFilters };
 
@@ -69,7 +74,38 @@ async function getSearchQuery(filters: SearchFilters, expandKeyword: boolean): P
   return uniqueVariants.slice(0, MAX_SEARCH_VARIANTS).join("|");
 }
 
-function buildSearchParams(filters: SearchFilters, query: string): URLSearchParams {
+/** The only duration control `search.list` has: one bucket per request. */
+type DurationBucket = "short" | "medium" | "long";
+
+/**
+ * Which `videoDuration` buckets to ask YouTube for.
+ *
+ * `search.list` has no "no Shorts" switch and accepts a single bucket per
+ * request — `short` (< 4 min), `medium` (4–20 min) or `long` (> 20 min) — so
+ * excluding Shorts at the request means running the search once per remaining
+ * bucket. Two consequences, both deliberate:
+ *
+ * - The cut is YouTube's 4 minutes, not the 180 seconds of `classifyFormat`, so
+ *   3–4 minute long-form uploads never come back. `applyPostFilters` still runs
+ *   the canonical rule on whatever does.
+ * - No result slot is spent on a Short, so fewer pages are needed; the page
+ *   budget in `findOutliers` is split across the buckets rather than added to.
+ */
+function searchDurationBuckets(filters: SearchFilters): (DurationBucket | null)[] {
+  // An explicit duration filter already pins the bucket.
+  if (filters.minDuration && filters.minDuration >= 20) return ["long"];
+  if (filters.maxDuration && filters.maxDuration <= 4) return ["short"];
+  if (filters.videoType && filters.videoType !== "any") return [filters.videoType];
+  if (filters.excludeShorts === false) return [null];
+  if (filters.maxDuration && filters.maxDuration <= 20) return ["medium"];
+  return ["medium", "long"];
+}
+
+function buildSearchParams(
+  filters: SearchFilters,
+  query: string,
+  bucket: DurationBucket | null
+): URLSearchParams {
   const params = new URLSearchParams({
     part: "snippet",
     q: query,
@@ -82,26 +118,15 @@ function buildSearchParams(filters: SearchFilters, query: string): URLSearchPara
   if (filters.publishedAfter) params.set("publishedAfter", filters.publishedAfter);
   if (filters.publishedBefore) params.set("publishedBefore", filters.publishedBefore);
   if (filters.language) params.set("relevanceLanguage", filters.language);
-
-  // Smart videoDuration: use min/max duration to set API-level pre-filter
-  if (filters.minDuration && filters.minDuration >= 20) {
-    params.set("videoDuration", "long"); // > 20 min
-  } else if (filters.maxDuration && filters.maxDuration <= 4) {
-    params.set("videoDuration", "short"); // < 4 min
-  } else if (filters.videoType === "short") {
-    params.set("videoDuration", "short");
-  } else if (filters.videoType === "medium") {
-    params.set("videoDuration", "medium");
-  } else if (filters.videoType === "long") {
-    params.set("videoDuration", "long");
-  }
+  if (bucket) params.set("videoDuration", bucket);
 
   return params;
 }
 
 // Returns true if the filters include criteria that YouTube API can't handle
 // (subscribers, engagement, exact duration ranges) — meaning we'll lose results
-// to post-filtering and should fetch extra pages.
+// to post-filtering and should fetch extra pages. Excluding Shorts is no longer
+// one of them: `searchDurationBuckets` keeps them out of the response entirely.
 function hasHeavyPostFilters(filters: SearchFilters): boolean {
   return !!(filters.maxSubscribers || filters.minViews || filters.minEngagement ||
     (filters.minDuration && filters.minDuration > 0) ||
@@ -114,24 +139,40 @@ export async function searchVideos(
   expandKeyword: boolean = false
 ): Promise<string[]> {
   const query = await getSearchQuery(filters, expandKeyword);
-  const params = buildSearchParams(filters, query);
+  const buckets = searchDurationBuckets(filters);
+  // `maxPages` is the whole budget for this search: one `search.list` call costs
+  // 100 quota units, so asking for two buckets must not double the bill.
+  const pagesPerBucket = Math.max(1, Math.floor(maxPages / buckets.length));
+  // An expanded `a|b|c` query can return the same video on more than one page,
+  // and the buckets can overlap at their edges, which would otherwise inflate
+  // the result count and duplicate React keys.
+  const seen = new Set<string>();
   const allIds: string[] = [];
 
-  for (let page = 0; page < maxPages; page++) {
-    const res = await fetch(`${BASE_URL}/search?${params}`);
-    if (!res.ok) {
-      const err = await res.text();
-      throw new Error(`YouTube search failed: ${err}`);
-    }
-    const data = await res.json();
-    const ids = (data.items || []).map((item: { id: { videoId: string } }) => item.id.videoId);
-    allIds.push(...ids);
+  for (const bucket of buckets) {
+    const params = buildSearchParams(filters, query, bucket);
 
-    // If there's a next page token, set it for the next iteration
-    if (data.nextPageToken) {
-      params.set("pageToken", data.nextPageToken);
-    } else {
-      break; // No more results
+    for (let page = 0; page < pagesPerBucket; page++) {
+      const res = await fetch(`${BASE_URL}/search?${params}`);
+      if (!res.ok) {
+        const err = await res.text();
+        throw new Error(`YouTube search failed: ${err}`);
+      }
+      const data = await res.json();
+      for (const item of data.items || []) {
+        const id = item.id?.videoId;
+        if (id && !seen.has(id)) {
+          seen.add(id);
+          allIds.push(id);
+        }
+      }
+
+      // If there's a next page token, set it for the next iteration
+      if (data.nextPageToken) {
+        params.set("pageToken", data.nextPageToken);
+      } else {
+        break; // No more results in this bucket
+      }
     }
   }
 
@@ -212,7 +253,11 @@ export async function getChannelStats(
     });
 
     const res = await fetch(`${BASE_URL}/channels?${params}`);
-    if (!res.ok) continue;
+    if (!res.ok) {
+      // Skipping the batch would silently drop every video on those channels
+      // and make the result set look like the search found less.
+      throw new Error(`YouTube channel stats failed: ${await res.text()}`);
+    }
     const data = await res.json();
 
     for (const item of data.items || []) {
@@ -230,9 +275,23 @@ export async function getChannelStats(
 function applyPostFilters(videos: VideoResult[], filters: SearchFilters): VideoResult[] {
   let filtered = videos;
 
+  // Shorts are excluded unless explicitly asked for. The rule is the canonical
+  // one in the metrics module, so search and baselines agree on what a Short is.
+  if (filters.excludeShorts !== false) {
+    filtered = filtered.filter(
+      (v) =>
+        classifyFormat({ durationSeconds: parseDuration(v.duration) }) !== "short"
+    );
+  }
+
+  // A video whose subscriber count or engagement rate is unknown cannot be
+  // shown to satisfy a threshold on it, so it is dropped rather than counted
+  // as 0 — which would have let every unknown pass a "max subscribers" filter.
   if (filters.maxSubscribers) {
     filtered = filtered.filter(
-      (v) => (v.channelSubscribers || 0) <= filters.maxSubscribers!
+      (v) =>
+        v.channelSubscribers !== null &&
+        v.channelSubscribers <= filters.maxSubscribers!
     );
   }
 
@@ -254,7 +313,7 @@ function applyPostFilters(videos: VideoResult[], filters: SearchFilters): VideoR
 
   if (filters.minEngagement) {
     filtered = filtered.filter(
-      (v) => (v.engagementRate || 0) >= filters.minEngagement!
+      (v) => v.engagementRate !== null && v.engagementRate >= filters.minEngagement!
     );
   }
 
@@ -271,6 +330,12 @@ function applyPostFilters(videos: VideoResult[], filters: SearchFilters): VideoR
   return filtered;
 }
 
+/**
+ * Attaches channel-derived figures. Every one of them is null when it cannot be
+ * computed — a channel with no lifetime average, no subscribers or a video with
+ * no views produces no ratio, never a 0 that would sort and read like a real
+ * measurement. The ratio itself comes from the canonical metrics module.
+ */
 function enrichWithChannelStats(
   videos: VideoResult[],
   channelStats: Map<string, { subscribers: number; averageViews: number; name: string }>
@@ -280,27 +345,265 @@ function enrichWithChannelStats(
       const channel = channelStats.get(video.channelId);
       if (!channel) return null;
 
-      const outlierScore =
-        channel.averageViews > 0
-          ? video.views / channel.averageViews
-          : 0;
       const viewsToSubsRatio =
-        channel.subscribers > 0 ? video.views / channel.subscribers : 0;
+        channel.subscribers > 0
+          ? Math.round((video.views / channel.subscribers) * 100) / 100
+          : null;
       const engagementRate =
         video.views > 0
-          ? ((video.likes + video.comments) / video.views) * 100
-          : 0;
+          ? Math.round(
+              ((video.likes + video.comments) / video.views) * 100 * 100
+            ) / 100
+          : null;
 
       return {
         ...video,
-        outlierScore: Math.round(outlierScore * 100) / 100,
+        outlierScore: legacyLifetimeAverageRatio(
+          video.views,
+          channel.averageViews
+        ),
         channelSubscribers: channel.subscribers,
-        channelAverageViews: Math.round(channel.averageViews),
-        engagementRate: Math.round(engagementRate * 100) / 100,
-        viewsToSubsRatio: Math.round(viewsToSubsRatio * 100) / 100,
+        channelAverageViews:
+          channel.averageViews > 0 ? Math.round(channel.averageViews) : null,
+        engagementRate,
+        viewsToSubsRatio,
       };
     })
     .filter((v) => v !== null) as VideoResult[];
+}
+
+// ── Uploads-playlist collection (no search.list quota) ──
+
+/**
+ * How many of a channel's most recent uploads a single analysis will scan.
+ * 200 uploads costs 4 `playlistItems.list` + 4 `videos.list` calls = 8 quota
+ * units, versus 100 units for one `search.list`.
+ */
+export const MAX_UPLOADS_SCANNED = 200;
+
+const VIDEO_ID_PATTERN = /^[A-Za-z0-9_-]{11}$/;
+
+/**
+ * Extracts a video id from a watch/short/live/embed/youtu.be URL, or accepts a
+ * bare id. Returns `null` when the input is not a YouTube video reference —
+ * callers must surface that rather than guessing.
+ */
+export function parseVideoId(input: string): string | null {
+  const trimmed = input.trim();
+  if (!trimmed) return null;
+  if (VIDEO_ID_PATTERN.test(trimmed)) return trimmed;
+
+  let url: URL;
+  try {
+    url = new URL(trimmed.includes("://") ? trimmed : `https://${trimmed}`);
+  } catch {
+    return null;
+  }
+
+  const host = url.hostname.replace(/^www\./, "");
+  if (host === "youtu.be") {
+    const id = url.pathname.slice(1).split("/")[0];
+    return VIDEO_ID_PATTERN.test(id) ? id : null;
+  }
+  if (host !== "youtube.com" && host !== "m.youtube.com" && host !== "music.youtube.com") {
+    return null;
+  }
+
+  const queryId = url.searchParams.get("v");
+  if (queryId && VIDEO_ID_PATTERN.test(queryId)) return queryId;
+
+  const segments = url.pathname.split("/").filter(Boolean);
+  if (
+    segments.length >= 2 &&
+    ["shorts", "live", "embed", "v"].includes(segments[0])
+  ) {
+    return VIDEO_ID_PATTERN.test(segments[1]) ? segments[1] : null;
+  }
+
+  return null;
+}
+
+export interface ChannelSummary {
+  id: string;
+  name: string;
+  subscribers: number | null;
+  totalViews: bigint | null;
+  videoCount: number | null;
+  /** Lifetime views ÷ video count — only used to show the legacy metric. */
+  lifetimeAverageViews: number | null;
+  uploadsPlaylistId: string;
+}
+
+/** Looks up a channel's uploads playlist. 1 quota unit. */
+export async function getChannelUploadsInfo(
+  channelId: string
+): Promise<ChannelSummary | null> {
+  const params = new URLSearchParams({
+    part: "snippet,contentDetails,statistics",
+    id: channelId,
+    key: API_KEY,
+  });
+  const res = await fetch(`${BASE_URL}/channels?${params}`);
+  if (!res.ok) {
+    throw new Error(`YouTube channel lookup failed: ${await res.text()}`);
+  }
+  const data = await res.json();
+  const item = data.items?.[0];
+  if (!item) return null;
+
+  const uploadsPlaylistId = item.contentDetails?.relatedPlaylists?.uploads;
+  if (!uploadsPlaylistId) return null;
+
+  const totalViews = item.statistics?.viewCount;
+  const videoCount = parseInt(item.statistics?.videoCount ?? "0");
+
+  return {
+    id: item.id,
+    name: item.snippet.title,
+    subscribers: item.statistics?.hiddenSubscriberCount
+      ? null
+      : parseInt(item.statistics?.subscriberCount ?? "0"),
+    totalViews:
+      totalViews === undefined ? null : BigInt(totalViews),
+    videoCount: videoCount > 0 ? videoCount : null,
+    lifetimeAverageViews:
+      totalViews === undefined || videoCount <= 0
+        ? null
+        : Math.round(parseInt(totalViews) / videoCount),
+    uploadsPlaylistId,
+  };
+}
+
+/**
+ * Enumerates the most recent uploads of a playlist, newest first.
+ * 1 quota unit per 50 ids — no `search.list` involved.
+ */
+export async function listPlaylistVideoIds(
+  playlistId: string,
+  maxVideos: number
+): Promise<string[]> {
+  const ids: string[] = [];
+  let pageToken: string | undefined;
+
+  while (ids.length < maxVideos) {
+    const params = new URLSearchParams({
+      part: "contentDetails",
+      playlistId,
+      maxResults: String(Math.min(50, maxVideos - ids.length)),
+      key: API_KEY,
+    });
+    if (pageToken) params.set("pageToken", pageToken);
+
+    const res = await fetch(`${BASE_URL}/playlistItems?${params}`);
+    if (!res.ok) {
+      throw new Error(`YouTube uploads enumeration failed: ${await res.text()}`);
+    }
+    const data = await res.json();
+    for (const item of data.items || []) {
+      const id = item.contentDetails?.videoId;
+      if (id) ids.push(id);
+    }
+    pageToken = data.nextPageToken;
+    if (!pageToken) break;
+  }
+
+  return ids;
+}
+
+export interface UploadCollection {
+  videos: UploadVideo[];
+  /** Ids that `videos.list` did not return — private, deleted or region-blocked. */
+  missingIds: string[];
+}
+
+/**
+ * Fetches the metric inputs for a set of video ids. A video whose statistics
+ * YouTube withholds gets `views: null` rather than 0, so an unknown view count
+ * is never mistaken for a real one.
+ */
+export async function getUploadVideos(
+  videoIds: string[]
+): Promise<UploadCollection> {
+  const videos: UploadVideo[] = [];
+  const returned = new Set<string>();
+
+  for (let i = 0; i < videoIds.length; i += 50) {
+    const batch = videoIds.slice(i, i + 50);
+    const params = new URLSearchParams({
+      part: "snippet,statistics,contentDetails,liveStreamingDetails",
+      id: batch.join(","),
+      key: API_KEY,
+    });
+
+    const res = await fetch(`${BASE_URL}/videos?${params}`);
+    if (!res.ok) {
+      throw new Error(`YouTube video lookup failed: ${await res.text()}`);
+    }
+    const data = await res.json();
+
+    for (const item of data.items || []) {
+      returned.add(item.id);
+      const rawViews = item.statistics?.viewCount;
+      videos.push({
+        id: item.id,
+        title: item.snippet.title,
+        publishedAt: new Date(item.snippet.publishedAt),
+        views: rawViews === undefined ? null : parseInt(rawViews),
+        durationSeconds: parseDuration(item.contentDetails?.duration || "PT0S"),
+        liveBroadcastContent: item.snippet.liveBroadcastContent ?? null,
+        hasLiveStreamingDetails: Boolean(item.liveStreamingDetails),
+      });
+    }
+  }
+
+  return {
+    videos,
+    missingIds: videoIds.filter((id) => !returned.has(id)),
+  };
+}
+
+/** Full metadata for one video, plus its channel id. */
+export async function getUploadVideo(videoId: string): Promise<
+  | { video: UploadVideo; channelId: string; channelName: string; thumbnailUrl: string; likes: number | null; comments: number | null }
+  | null
+> {
+  const params = new URLSearchParams({
+    part: "snippet,statistics,contentDetails,liveStreamingDetails",
+    id: videoId,
+    key: API_KEY,
+  });
+  const res = await fetch(`${BASE_URL}/videos?${params}`);
+  if (!res.ok) {
+    throw new Error(`YouTube video lookup failed: ${await res.text()}`);
+  }
+  const data = await res.json();
+  const item = data.items?.[0];
+  if (!item) return null;
+
+  const rawViews = item.statistics?.viewCount;
+  const rawLikes = item.statistics?.likeCount;
+  const rawComments = item.statistics?.commentCount;
+
+  return {
+    video: {
+      id: item.id,
+      title: item.snippet.title,
+      publishedAt: new Date(item.snippet.publishedAt),
+      views: rawViews === undefined ? null : parseInt(rawViews),
+      durationSeconds: parseDuration(item.contentDetails?.duration || "PT0S"),
+      liveBroadcastContent: item.snippet.liveBroadcastContent ?? null,
+      hasLiveStreamingDetails: Boolean(item.liveStreamingDetails),
+    },
+    channelId: item.snippet.channelId,
+    channelName: item.snippet.channelTitle,
+    thumbnailUrl:
+      item.snippet.thumbnails?.high?.url ||
+      item.snippet.thumbnails?.medium?.url ||
+      item.snippet.thumbnails?.default?.url ||
+      "",
+    likes: rawLikes === undefined ? null : parseInt(rawLikes),
+    comments: rawComments === undefined ? null : parseInt(rawComments),
+  };
 }
 
 export async function findOutliers(filters: SearchFilters): Promise<VideoResult[]> {
@@ -326,8 +629,8 @@ export async function findOutliers(filters: SearchFilters): Promise<VideoResult[
   // 5. Apply client-side filters
   const filtered = applyPostFilters(enriched, filters);
 
-  // 6. Sort by outlier score descending and limit to requested count
-  filtered.sort((a, b) => (b.outlierScore || 0) - (a.outlierScore || 0));
+  // 6. Highest legacy ratio first; videos with no computable ratio go last
+  filtered.sort((a, b) => (b.outlierScore ?? -1) - (a.outlierScore ?? -1));
   const results = filtered.slice(0, targetCount);
 
   return results;

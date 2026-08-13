@@ -32,6 +32,8 @@ export interface SearchFilters {
   language?: string;
   maxResults?: number;
   minEngagement?: number;
+  /** Drop Shorts from the results. Defaults to true — see SHORTS_MAX_SECONDS. */
+  excludeShorts?: boolean;
 }
 
 export interface Folder {
