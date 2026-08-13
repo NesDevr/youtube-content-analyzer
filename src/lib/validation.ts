@@ -1,22 +1,77 @@
 import { z } from "zod/v4";
+import { WORKSPACE_STATUSES, WORKSPACE_CONTENT_FORMATS } from "./workspace";
+
+// ── Channel Workspace Schemas ───────────────────────────
+
+const workspaceFieldsSchema = z.object({
+  name: z.string().min(1).max(100),
+  concept: z.string().max(2000).optional(),
+  status: z.enum(WORKSPACE_STATUSES).optional(),
+  language: z.string().min(1).max(10).optional(),
+  country: z.string().max(10).optional(),
+  targetAudience: z.string().max(500).optional(),
+  contentFormat: z.enum(WORKSPACE_CONTENT_FORMATS).optional(),
+  positioning: z.string().max(1000).optional(),
+  constraints: z.string().max(1000).optional(),
+  ownedYoutubeChannelId: z.string().max(64).nullable().optional(),
+});
+
+const createWorkspaceSchema = workspaceFieldsSchema.extend({
+  action: z.literal("create"),
+});
+
+const updateWorkspaceSchema = workspaceFieldsSchema.partial().extend({
+  action: z.literal("update"),
+  id: z.int().positive(),
+});
+
+export const workspaceActionSchema = z.discriminatedUnion("action", [
+  createWorkspaceSchema,
+  updateWorkspaceSchema,
+]);
 
 // ── Folder Schemas ──────────────────────────────────────
 
 const createFolderSchema = z.object({
   action: z.literal("create"),
   name: z.string().min(1).max(100),
+  workspaceId: z.int().positive(),
+});
+
+/**
+ * Search results live only in memory until the user saves one, so `addVideo`
+ * carries the full video payload and the route upserts the `Video` row. Without
+ * it, saving anything found through search fails with "Video not found".
+ */
+const savedVideoSchema = z.object({
+  id: z.string().min(1),
+  title: z.string(),
+  channelId: z.string(),
+  channelName: z.string(),
+  views: z.number().int().nonnegative(),
+  likes: z.number().int().nonnegative(),
+  comments: z.number().int().nonnegative(),
+  duration: z.string(),
+  publishedAt: z.string(),
+  thumbnailUrl: z.string(),
+  description: z.string().optional(),
+  outlierScore: z.number().nullable().optional(),
+  viewsPerHour: z.number().nullable().optional(),
 });
 
 const addVideoSchema = z.object({
   action: z.literal("addVideo"),
   videoId: z.string().min(1),
   folderId: z.int().positive(),
+  workspaceId: z.int().positive(),
+  video: savedVideoSchema.optional(),
 });
 
 const removeVideoSchema = z.object({
   action: z.literal("removeVideo"),
   videoId: z.string().min(1),
   folderId: z.int().positive(),
+  workspaceId: z.int().positive(),
 });
 
 export const folderActionSchema = z.discriminatedUnion("action", [
@@ -31,6 +86,7 @@ const createPanelSchema = z.object({
   action: z.literal("create"),
   name: z.string().min(1).max(100),
   keyword: z.string().min(1),
+  workspaceId: z.int().positive(),
   filters: z.record(z.string(), z.unknown()).optional(),
   results: z.array(z.record(z.string(), z.unknown())).optional(),
 });
@@ -38,6 +94,7 @@ const createPanelSchema = z.object({
 const refreshPanelSchema = z.object({
   action: z.literal("refresh"),
   id: z.int().positive(),
+  workspaceId: z.int().positive(),
 });
 
 export const panelActionSchema = z.discriminatedUnion("action", [
@@ -59,7 +116,46 @@ export const youtubeSearchSchema = z.object({
   language: z.string().optional(),
   maxResults: z.number().int().min(1).max(50).optional(),
   minEngagement: z.number().nonnegative().optional(),
+  excludeShorts: z.boolean().optional(),
 });
+
+// ── Outlier Lab Schema ──────────────────────────────────
+
+export const outlierAnalyzeSchema = z.object({
+  url: z.string().min(1),
+  workspaceId: z.int().positive(),
+});
+
+// ── Collection Engine Schemas ──────────────────────────
+
+export const collectionActionSchema = z.discriminatedUnion("action", [
+  z.object({
+    action: z.literal("discover"),
+    workspaceId: z.int().positive(),
+    query: z.string().min(1).max(200),
+    language: z.string().max(10).optional(),
+    region: z.string().max(10).optional(),
+  }),
+  z.object({
+    action: z.literal("track"),
+    workspaceId: z.int().positive(),
+    channelId: z.string().min(1).max(100),
+    priority: z.enum(["tier-1", "tier-2", "tier-3"]),
+    refreshSchedule: z.enum(["daily", "weekly", "monthly", "manual"]),
+  }),
+  z.object({
+    action: z.literal("refresh"),
+    workspaceId: z.int().positive(),
+    trackedChannelId: z.int().positive().optional(),
+  }),
+  z.object({
+    action: z.literal("updatePolicy"),
+    workspaceId: z.int().positive(),
+    dailyBudget: z.int().min(1).max(10000),
+    manualReserve: z.int().min(0).max(9999),
+    searchCacheHours: z.int().min(1).max(720),
+  }),
+]);
 
 // ── AI Schemas ──────────────────────────────────────────
 
@@ -69,11 +165,12 @@ export const aiIdeasSchema = z.object({
     views: z.number(),
     likes: z.number(),
     channelName: z.string(),
-    channelSubscribers: z.number(),
-    outlierScore: z.number(),
+    /** Null for videos saved before a legacy score was computed. */
+    outlierScore: z.number().nullable(),
     description: z.string(),
   })).min(1).max(10),
   folderId: z.number().int().nullable().optional(),
+  workspaceId: z.int().positive(),
 });
 
 export const aiSummarizeSchema = z.object({
@@ -95,14 +192,6 @@ export const keywordsAiSchema = z.object({
   mode: z.enum(["default", "brainstorm"]).optional(),
 });
 
-// ── Trends Schema ───────────────────────────────────────
-
-export const trendsSchema = z.object({
-  keywords: z.array(z.string().min(1)).min(1).max(5),
-  timeRange: z.enum(["now 7-d", "today 1-m", "today 3-m", "today 12-m", "today 5-y"]).optional(),
-  action: z.enum(["interestOverTime", "relatedQueries", "regionalInterest"]).optional(),
-});
-
 // ── Channel Starter Schemas ─────────────────────────────
 
 const userProfileSchema = z.object({
@@ -119,6 +208,7 @@ const userProfileSchema = z.object({
 
 export const channelStarterDiscoverSchema = z.object({
   profile: userProfileSchema.nullable(),
+  workspaceId: z.int().positive(),
 });
 
 export const channelStarterDeepDiveSchema = z.object({
