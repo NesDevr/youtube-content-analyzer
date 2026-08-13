@@ -84,36 +84,36 @@
 
 .dark {
   --background: oklch(0.145 0.004 285);
-  --foreground: oklch(0.985 0 0);
+  --foreground: oklch(0.92 0 0);
   --card: oklch(0.185 0.004 285);
-  --card-foreground: oklch(0.985 0 0);
+  --card-foreground: oklch(0.92 0 0);
   --popover: oklch(0.185 0.004 285);
-  --popover-foreground: oklch(0.985 0 0);
-  --primary: oklch(0.637 0.237 15);
+  --popover-foreground: oklch(0.92 0 0);
+  --primary: oklch(0.57 0.21 15);
   --primary-foreground: oklch(0.985 0 0);
   --secondary: oklch(0.245 0.005 285);
-  --secondary-foreground: oklch(0.985 0 0);
+  --secondary-foreground: oklch(0.92 0 0);
   --muted: oklch(0.245 0.005 285);
   --muted-foreground: oklch(0.708 0 0);
   --accent: oklch(0.300 0.010 15);
-  --accent-foreground: oklch(0.985 0 0);
+  --accent-foreground: oklch(0.92 0 0);
   --destructive: oklch(0.704 0.191 22.216);
   --border: oklch(1 0 0 / 12%);
   --input: oklch(1 0 0 / 15%);
-  --ring: oklch(0.637 0.237 15);
+  --ring: oklch(0.57 0.21 15);
   --chart-1: oklch(0.809 0.105 251.813);
   --chart-2: oklch(0.623 0.214 259.815);
   --chart-3: oklch(0.546 0.245 262.881);
   --chart-4: oklch(0.488 0.243 264.376);
   --chart-5: oklch(0.424 0.199 265.638);
   --sidebar: oklch(0.165 0.004 285);
-  --sidebar-foreground: oklch(0.985 0 0);
-  --sidebar-primary: oklch(0.637 0.237 15);
+  --sidebar-foreground: oklch(0.92 0 0);
+  --sidebar-primary: oklch(0.57 0.21 15);
   --sidebar-primary-foreground: oklch(0.985 0 0);
   --sidebar-accent: oklch(0.230 0.008 15);
-  --sidebar-accent-foreground: oklch(0.985 0 0);
+  --sidebar-accent-foreground: oklch(0.92 0 0);
   --sidebar-border: oklch(1 0 0 / 8%);
-  --sidebar-ring: oklch(0.637 0.237 15);
+  --sidebar-ring: oklch(0.57 0.21 15);
 }
 
 @layer base {
@@ -121,12 +121,9 @@
     @apply border-border outline-ring/50;
   }
   body {
-    @apply bg-background text-foreground;
+    @apply bg-background text-foreground font-sans;
     background-image: radial-gradient(oklch(1 0 0 / 3%) 1px, transparent 1px);
     background-size: 24px 24px;
-  }
-  html {
-    @apply font-sans;
   }
 
   @keyframes fade-in-up {

@@ -3,27 +3,18 @@
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import {
-  Search,
-  Key,
-  TrendingUp,
-  FolderOpen,
-  Sparkles,
   LayoutDashboard,
-  Microscope,
   Play,
-  Compass,
+  FlaskConical,
+  Lightbulb,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { WorkspaceSwitcher } from "@/components/workspace-switcher";
 
 const navItems = [
-  { href: "/", label: "Dashboard", icon: LayoutDashboard },
-  { href: "/outlier-finder", label: "Outlier Finder", icon: Search },
-  { href: "/keywords", label: "Keyword Research", icon: Key },
-  { href: "/trends", label: "Google Trends", icon: TrendingUp },
-  { href: "/folders", label: "Folders", icon: FolderOpen },
-  { href: "/ai-tools", label: "AI Tools", icon: Sparkles },
-  { href: "/analyzer", label: "Video Analyzer", icon: Microscope },
-  { href: "/channel-starter", label: "Channel Starter", icon: Compass },
+  { href: "/", label: "Overview", icon: LayoutDashboard },
+  { href: "/opportunity-lab", label: "Opportunity Lab", icon: FlaskConical },
+  { href: "/ideas", label: "Ideas", icon: Lightbulb },
 ];
 
 export function Sidebar() {
@@ -47,6 +38,8 @@ export function Sidebar() {
           </div>
         </div>
       </div>
+
+      <WorkspaceSwitcher />
 
       <nav className="flex-1 p-3 space-y-1">
         <p className="px-3 py-2 text-[11px] font-medium text-muted-foreground/60 uppercase tracking-wider">

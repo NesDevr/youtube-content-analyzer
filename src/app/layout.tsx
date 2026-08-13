@@ -3,6 +3,7 @@ import { Geist, Geist_Mono } from "next/font/google";
 import "./globals.css";
 import { Sidebar } from "@/components/sidebar";
 import { TooltipProvider } from "@/components/ui/tooltip";
+import { WorkspaceProvider } from "@/hooks/use-workspace";
 import { Toaster } from "sonner";
 
 const geistSans = Geist({
@@ -17,7 +18,7 @@ const geistMono = Geist_Mono({
 
 export const metadata: Metadata = {
   title: "YT Analyzer — YouTube Research Tool",
-  description: "Find viral niches, outlier videos, and content ideas",
+  description: "Private evidence-first YouTube research workspace",
 };
 
 export default function RootLayout({
@@ -30,16 +31,18 @@ export default function RootLayout({
       <body
         className={`${geistSans.variable} ${geistMono.variable} antialiased`}
       >
-        <TooltipProvider>
-          <div className="flex min-h-screen">
-            <Sidebar />
-            <main className="flex-1 overflow-auto relative">
-              <div className="pointer-events-none absolute inset-x-0 top-0 h-32 bg-gradient-to-b from-primary/[0.02] to-transparent" />
-              <div className="relative">{children}</div>
-            </main>
-          </div>
-          <Toaster theme="dark" richColors position="bottom-right" />
-        </TooltipProvider>
+        <WorkspaceProvider>
+          <TooltipProvider>
+            <div className="flex min-h-screen">
+              <Sidebar />
+              <main className="flex-1 overflow-auto relative">
+                <div className="pointer-events-none absolute inset-x-0 top-0 h-32 bg-gradient-to-b from-primary/[0.02] to-transparent" />
+                <div className="relative">{children}</div>
+              </main>
+            </div>
+            <Toaster theme="dark" richColors position="bottom-right" />
+          </TooltipProvider>
+        </WorkspaceProvider>
       </body>
     </html>
   );

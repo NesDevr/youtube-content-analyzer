@@ -24,8 +24,9 @@ import {
   FolderPlus,
   Clock,
   MoreVertical,
-  CheckSquare,
   Search,
+  Trash2,
+  FlaskConical,
 } from "lucide-react";
 
 interface VideoCardProps {
@@ -48,9 +49,8 @@ interface VideoCardProps {
   };
   folders?: { id: number; name: string }[];
   onSaveToFolder?: (videoId: string, folderId: number) => void;
-  onSelect?: (videoId: string) => void;
-  selected?: boolean;
   onSearchSimilar?: (keyword: string) => void;
+  onRemove?: (videoId: string) => void;
 }
 
 function formatNumber(n: number): string {
@@ -99,29 +99,19 @@ function getViewsToSubsBadge(ratio: number | null | undefined) {
   );
 }
 
-function getOutlierBadge(score: number | null) {
+/**
+ * The lifetime-average ratio is a legacy metric: it mixes Shorts, long-form and
+ * livestreams and compares against a channel's whole back catalogue. It is shown
+ * neutrally and labelled as legacy — the Outlier Lab produces the real score.
+ */
+function getLegacyScoreBadge(score: number | null) {
   if (!score) return null;
-  if (score >= 10)
-    return (
-      <Badge className="bg-red-500/20 text-red-400 border-red-500/30">
-        {score}x Outlier
-      </Badge>
-    );
-  if (score >= 5)
-    return (
-      <Badge className="bg-orange-500/20 text-orange-400 border-orange-500/30">
-        {score}x Outlier
-      </Badge>
-    );
-  if (score >= 2)
-    return (
-      <Badge className="bg-yellow-500/20 text-yellow-400 border-yellow-500/30">
-        {score}x
-      </Badge>
-    );
   return (
-    <Badge variant="secondary">
-      {score}x
+    <Badge variant="secondary" className="font-normal">
+      {score}× vs lifetime avg
+      <span className="ml-1 text-[10px] uppercase tracking-wide opacity-60">
+        legacy
+      </span>
     </Badge>
   );
 }
@@ -132,9 +122,8 @@ export const VideoCard = React.memo(function VideoCard({
   video,
   folders = [],
   onSaveToFolder,
-  onSelect,
-  selected,
   onSearchSimilar,
+  onRemove,
 }: VideoCardProps) {
   const [thumbnailOpen, setThumbnailOpen] = useState(false);
 
@@ -146,16 +135,6 @@ export const VideoCard = React.memo(function VideoCard({
           className="relative flex-shrink-0 w-48 h-28 rounded-lg overflow-hidden bg-muted cursor-pointer group/thumb"
           onClick={() => setThumbnailOpen(true)}
         >
-          {onSelect && (
-            <button
-              onClick={(e) => { e.stopPropagation(); onSelect(video.id); }}
-              className="absolute top-1 left-1 z-10 p-1 rounded bg-black/50 hover:bg-black/70 transition-colors"
-            >
-              <CheckSquare
-                className={`h-4 w-4 ${selected ? "text-primary" : "text-white/70"}`}
-              />
-            </button>
-          )}
           <Image
             src={video.thumbnailUrl}
             alt={video.title}
@@ -219,12 +198,29 @@ export const VideoCard = React.memo(function VideoCard({
                     ))}
                   </>
                 )}
+                <DropdownMenuItem
+                  onClick={() =>
+                    window.open(`/outlier-lab?v=${video.id}`, "_blank")
+                  }
+                >
+                  <FlaskConical className="mr-2 h-4 w-4" />
+                  Check real baseline
+                </DropdownMenuItem>
                 {onSearchSimilar && (
                   <DropdownMenuItem
                     onClick={() => onSearchSimilar(video.title)}
                   >
                     <Search className="mr-2 h-4 w-4" />
                     Find Similar
+                  </DropdownMenuItem>
+                )}
+                {onRemove && (
+                  <DropdownMenuItem
+                    variant="destructive"
+                    onClick={() => onRemove(video.id)}
+                  >
+                    <Trash2 className="mr-2 h-4 w-4" />
+                    Remove from folder
                   </DropdownMenuItem>
                 )}
               </DropdownMenuContent>
@@ -268,12 +264,12 @@ export const VideoCard = React.memo(function VideoCard({
 
           {/* Badges */}
           <div className="flex items-center gap-2 mt-2 flex-wrap">
-            {getOutlierBadge(video.outlierScore)}
+            {getLegacyScoreBadge(video.outlierScore)}
             {getEngagementBadge(video.engagementRate)}
             {getViewsToSubsBadge(video.viewsToSubsRatio)}
             {video.channelAverageViews != null && (
               <span className="text-xs text-muted-foreground">
-                Channel avg: {formatNumber(video.channelAverageViews)}
+                Lifetime channel avg: {formatNumber(video.channelAverageViews)}
               </span>
             )}
           </div>
