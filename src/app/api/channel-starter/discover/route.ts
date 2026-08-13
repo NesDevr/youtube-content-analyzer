@@ -6,50 +6,50 @@ import {
   getVideoDetails,
   getChannelStats,
 } from "@/lib/youtube";
-import { getInterestOverTime } from "@/lib/trends";
+import { legacyLifetimeAverageRatio } from "@/lib/metrics/outlier";
 import { prisma } from "@/lib/prisma";
+import { resolveWorkspaceId } from "@/lib/workspace";
 import { hashInputs, getCachedAiResponse, setCachedAiResponse } from "@/lib/ai-cache";
 import type { NicheSuggestion, RawNiche } from "@/types/channel-starter";
 
-function computeOpportunityScore(
-  outlierScores: number[],
-  channelSubs: number[],
-  trendDirection: "rising" | "stable" | "declining"
-): number {
-  if (outlierScores.length === 0) return 20;
+/**
+ * A 0-100 blend of three measured signals from one keyword search: how many of
+ * the returned videos beat their channel's lifetime average by 5x, how large
+ * that ratio gets, and how small the channels behind them are. Every input is
+ * the legacy lifetime-average ratio, so this is a rough first-pass signal — not
+ * a probability, and not a claim about the niche's future.
+ *
+ * Returns null when the search produced no comparable videos: an unmeasured
+ * niche must read as unmeasured rather than as a low score.
+ */
+function computeLegacySignalScore(
+  outlierRatios: number[],
+  channelSubs: number[]
+): number | null {
+  if (outlierRatios.length === 0 || channelSubs.length === 0) return null;
 
-  // Outlier density: % of videos with outlier score >= 5x
-  const outlierDensity = outlierScores.filter((s) => s >= 5).length / outlierScores.length;
+  const highRatioShare =
+    outlierRatios.filter((s) => s >= 5).length / outlierRatios.length;
 
-  // Average outlier score of top 10
-  const sorted = [...outlierScores].sort((a, b) => b - a);
+  const sorted = [...outlierRatios].sort((a, b) => b - a);
   const top10 = sorted.slice(0, 10);
-  const avgOutlierScore = top10.reduce((a, b) => a + b, 0) / top10.length;
-  const normalizedOutlier = Math.min(avgOutlierScore / 20, 1); // Cap at 20x
+  const avgTopRatio = top10.reduce((a, b) => a + b, 0) / top10.length;
+  const normalizedRatio = Math.min(avgTopRatio / 20, 1); // Cap at 20x
 
-  // Trend momentum
-  const trendScore =
-    trendDirection === "rising" ? 1 : trendDirection === "stable" ? 0.5 : 0.2;
-
-  // Small channel success: % of channels under 50k subs
   const smallChannelRatio =
-    channelSubs.length > 0
-      ? channelSubs.filter((s) => s < 50000).length / channelSubs.length
-      : 0.5;
+    channelSubs.filter((s) => s < 50000).length / channelSubs.length;
 
   const raw =
-    outlierDensity * 0.35 +
-    normalizedOutlier * 0.25 +
-    trendScore * 0.2 +
-    smallChannelRatio * 0.2;
+    highRatioShare * 0.45 + normalizedRatio * 0.3 + smallChannelRatio * 0.25;
 
   return Math.round(raw * 100);
 }
 
+/** Null when no channel was resolved — the level is unknown, not "medium". */
 function computeCompetitionLevel(
   channelSubs: number[]
-): "low" | "medium" | "high" {
-  if (channelSubs.length === 0) return "medium";
+): "low" | "medium" | "high" | null {
+  if (channelSubs.length === 0) return null;
   const sorted = [...channelSubs].sort((a, b) => a - b);
   const median = sorted[Math.floor(sorted.length / 2)];
   if (median < 100000) return "low";
@@ -57,137 +57,87 @@ function computeCompetitionLevel(
   return "high";
 }
 
-function computeTrendDirection(
-  trendData: { date: string; value: number }[]
-): "rising" | "stable" | "declining" {
-  if (trendData.length < 6) return "stable";
-  const mid = Math.floor(trendData.length / 2);
-  const recentHalf = trendData.slice(mid);
-  const olderHalf = trendData.slice(0, mid);
-
-  const recentAvg =
-    recentHalf.reduce((a, b) => a + b.value, 0) / recentHalf.length;
-  const olderAvg =
-    olderHalf.reduce((a, b) => a + b.value, 0) / olderHalf.length;
-
-  if (olderAvg === 0) return "stable";
-  const change = (recentAvg - olderAvg) / olderAvg;
-  if (change > 0.2) return "rising";
-  if (change < -0.2) return "declining";
-  return "stable";
-}
-
+/**
+ * Measures one AI-proposed niche against a real YouTube search. Throws when the
+ * search itself fails so the caller can report the niche as unvalidated instead
+ * of inventing a score for it.
+ */
 async function validateNiche(
   niche: RawNiche,
   contentFilter?: "long-form" | "short-form" | "shorts" | "both"
-): Promise<NicheSuggestion | null> {
-  try {
-    const primaryKeyword = niche.searchKeywords[0];
-    if (!primaryKeyword) return null;
+): Promise<NicheSuggestion> {
+  const primaryKeyword = niche.searchKeywords[0];
+  if (!primaryKeyword) {
+    throw new Error("Gemini returned a niche with no search keywords");
+  }
 
-    // Use YouTube's videoDuration filter to pre-filter by content type.
-    // "medium" = 4-20 min (good fit for long-form), "short" = <4 min.
-    const searchVideoType =
-      contentFilter === "short-form" || contentFilter === "shorts"
-        ? "short"
-        : contentFilter === "long-form"
-          ? "medium"
-          : undefined;
+  // Use YouTube's videoDuration filter to pre-filter by content type.
+  // "medium" = 4-20 min (good fit for long-form), "short" = <4 min.
+  const searchVideoType =
+    contentFilter === "short-form" || contentFilter === "shorts"
+      ? "short"
+      : contentFilter === "long-form"
+        ? "medium"
+        : undefined;
 
-    const videoIds = await searchVideos(
-      { keyword: primaryKeyword, videoType: searchVideoType },
-      1
-    );
-    if (videoIds.length === 0) {
-      return {
-        ...niche,
-        opportunityScore: 30,
-        competitionLevel: "medium",
-        trendDirection: "stable",
-        trendData: [],
-        exampleOutliers: [],
-      };
-    }
-
-    // Get video details + channel stats
-    const videos = await getVideoDetails(videoIds.slice(0, 20));
-
-    const channelIds = videos.map((v) => v.channelId);
-    const channelStats = await getChannelStats(channelIds);
-
-    // Compute outlier scores
-    const outlierScores: number[] = [];
-    const channelSubs: number[] = [];
-    const outlierExamples: NicheSuggestion["exampleOutliers"] = [];
-
-    for (const video of videos) {
-      const channel = channelStats.get(video.channelId);
-      if (!channel) continue;
-
-      channelSubs.push(channel.subscribers);
-      const outlierScore =
-        channel.averageViews > 0 ? video.views / channel.averageViews : 0;
-      outlierScores.push(outlierScore);
-
-      // Collect outlier examples from small channels
-      if (channel.subscribers < 200000 && outlierScore >= 3) {
-        outlierExamples.push({
-          id: video.id,
-          title: video.title,
-          channelName: video.channelName,
-          views: video.views,
-          channelSubscribers: channel.subscribers,
-          outlierScore: Math.round(outlierScore * 100) / 100,
-          thumbnailUrl: video.thumbnailUrl,
-        });
-      }
-    }
-
-    // Sort outlier examples by score and take top 3
-    outlierExamples.sort((a, b) => b.outlierScore - a.outlierScore);
-    const topOutliers = outlierExamples.slice(0, 3);
-
-    // Get trend data
-    let trendData: { date: string; value: number }[] = [];
-    let trendDirection: "rising" | "stable" | "declining" = "stable";
-    try {
-      const trends = await getInterestOverTime([primaryKeyword], "today 12-m");
-      if (trends[0]?.data) {
-        trendData = trends[0].data;
-        trendDirection = computeTrendDirection(trendData);
-      }
-      // Small delay to avoid trends rate limiting
-      await new Promise((resolve) => setTimeout(resolve, 500));
-    } catch {
-      // Trends failed — use defaults
-    }
-
-    const opportunityScore = computeOpportunityScore(
-      outlierScores,
-      channelSubs,
-      trendDirection
-    );
-    const competitionLevel = computeCompetitionLevel(channelSubs);
-
+  const videoIds = await searchVideos(
+    { keyword: primaryKeyword, videoType: searchVideoType },
+    1
+  );
+  if (videoIds.length === 0) {
     return {
       ...niche,
-      opportunityScore,
-      competitionLevel,
-      trendDirection,
-      trendData,
-      exampleOutliers: topOutliers,
-    };
-  } catch (error) {
-    console.error(`Failed to validate niche "${niche.name}":`, error);
-    return {
-      ...niche,
-      opportunityScore: 25,
-      competitionLevel: "medium",
-      trendDirection: "stable",
-      trendData: [],
+      legacySignalScore: null,
+      competitionLevel: null,
+      sampleSize: 0,
       exampleOutliers: [],
     };
   }
+
+  // Get video details + channel stats
+  const videos = await getVideoDetails(videoIds.slice(0, 20));
+
+  const channelIds = videos.map((v) => v.channelId);
+  const channelStats = await getChannelStats(channelIds);
+
+  // Legacy lifetime-average ratios for the videos this keyword returned.
+  const outlierRatios: number[] = [];
+  const channelSubs: number[] = [];
+  const outlierExamples: NicheSuggestion["exampleOutliers"] = [];
+
+  for (const video of videos) {
+    const channel = channelStats.get(video.channelId);
+    if (!channel) continue;
+
+    const ratio = legacyLifetimeAverageRatio(video.views, channel.averageViews);
+    // A channel with no usable lifetime average cannot contribute a ratio.
+    if (ratio === null) continue;
+
+    channelSubs.push(channel.subscribers);
+    outlierRatios.push(ratio);
+
+    if (channel.subscribers < 200000 && ratio >= 3) {
+      outlierExamples.push({
+        id: video.id,
+        title: video.title,
+        channelName: video.channelName,
+        views: video.views,
+        channelSubscribers: channel.subscribers,
+        outlierScore: Math.round(ratio * 100) / 100,
+        thumbnailUrl: video.thumbnailUrl,
+      });
+    }
+  }
+
+  outlierExamples.sort((a, b) => b.outlierScore - a.outlierScore);
+
+  return {
+    ...niche,
+    legacySignalScore: computeLegacySignalScore(outlierRatios, channelSubs),
+    competitionLevel: computeCompetitionLevel(channelSubs),
+    sampleSize: outlierRatios.length,
+    exampleOutliers: outlierExamples.slice(0, 3),
+  };
 }
 
 export async function POST(req: NextRequest) {
@@ -196,6 +146,11 @@ export async function POST(req: NextRequest) {
     const parsed = parseBody(channelStarterDiscoverSchema, body);
     if (!parsed.success) {
       return NextResponse.json({ error: parsed.error }, { status: 400 });
+    }
+
+    const workspace = await resolveWorkspaceId(parsed.data.workspaceId);
+    if (!workspace.ok) {
+      return NextResponse.json({ error: workspace.error }, { status: workspace.status });
     }
 
     // 1. Generate niche ideas with Gemini (check cache first)
@@ -218,26 +173,55 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    // 2. Validate each niche with YouTube + Trends data (batched 4 at a time)
+    // 2. Measure each niche against real YouTube search results, 6 at a time.
+    //    A niche whose search fails is reported by name rather than dropped or
+    //    given an invented score.
     const contentFilter = parsed.data.profile?.contentType ?? "both";
     const validatedNiches: NicheSuggestion[] = [];
+    const unvalidated: { name: string; reason: string }[] = [];
     for (let i = 0; i < rawNiches.length; i += 6) {
       const batch = rawNiches.slice(i, i + 6);
-      const results = await Promise.all(
+      const results = await Promise.allSettled(
         batch.map((niche) => validateNiche(niche, contentFilter))
       );
-      for (const result of results) {
-        if (result) validatedNiches.push(result);
-      }
+      results.forEach((result, index) => {
+        if (result.status === "fulfilled") {
+          validatedNiches.push(result.value);
+        } else {
+          console.error(
+            `Failed to validate niche "${batch[index].name}":`,
+            result.reason
+          );
+          unvalidated.push({
+            name: batch[index].name,
+            reason:
+              result.reason instanceof Error
+                ? result.reason.message
+                : String(result.reason),
+          });
+        }
+      });
     }
 
-    // 3. Sort by opportunity score
-    validatedNiches.sort((a, b) => b.opportunityScore - a.opportunityScore);
+    if (validatedNiches.length === 0) {
+      return NextResponse.json(
+        {
+          error: `No niche could be measured against YouTube. First failure: ${unvalidated[0]?.reason ?? "unknown"}`,
+        },
+        { status: 502 }
+      );
+    }
+
+    // 3. Highest measured signal first; unmeasured niches go last.
+    validatedNiches.sort(
+      (a, b) => (b.legacySignalScore ?? -1) - (a.legacySignalScore ?? -1)
+    );
 
     // 4. Save to DB
     const profile = parsed.data.profile;
     const discovery = await prisma.nicheDiscovery.create({
       data: {
+        workspaceId: workspace.workspaceId,
         interests: profile ? JSON.stringify(profile.interests) : null,
         skills: profile ? JSON.stringify(profile.skills) : null,
         constraints: profile ? JSON.stringify(profile.constraints) : null,
@@ -250,6 +234,7 @@ export async function POST(req: NextRequest) {
 
     return NextResponse.json({
       niches: validatedNiches,
+      unvalidated,
       discoveryId: discovery.id,
     });
   } catch (error) {

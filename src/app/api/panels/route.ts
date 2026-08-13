@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { findOutliers } from "@/lib/youtube";
 import { panelActionSchema, parseBody } from "@/lib/validation";
+import { resolveWorkspaceId } from "@/lib/workspace";
 
 function getDateRange(preset: string): { after?: string } {
   if (!preset) return {};
@@ -29,6 +30,7 @@ interface PanelFilters {
   datePreset?: string;
   language?: string;
   sortBy?: string;
+  excludeShorts?: boolean;
 }
 
 async function runSearch(keyword: string, filters: PanelFilters) {
@@ -42,13 +44,23 @@ async function runSearch(keyword: string, filters: PanelFilters) {
     minEngagement: filters.minEngagement ?? undefined,
     publishedAfter: dateRange.after,
     language: filters.language || undefined,
+    excludeShorts: filters.excludeShorts,
     maxResults: 50,
   });
 }
 
-export async function GET() {
+// GET /api/panels?workspaceId=1 — saved searches for one workspace
+export async function GET(req: NextRequest) {
   try {
+    const workspace = await resolveWorkspaceId(
+      req.nextUrl.searchParams.get("workspaceId")
+    );
+    if (!workspace.ok) {
+      return NextResponse.json({ error: workspace.error }, { status: workspace.status });
+    }
+
     const panels = await prisma.panel.findMany({
+      where: { workspaceId: workspace.workspaceId },
       orderBy: { createdAt: "desc" },
     });
     return NextResponse.json({ panels });
@@ -67,11 +79,18 @@ export async function POST(req: NextRequest) {
     }
     const data = parsed.data;
 
+    const workspace = await resolveWorkspaceId(data.workspaceId);
+    if (!workspace.ok) {
+      return NextResponse.json({ error: workspace.error }, { status: workspace.status });
+    }
+    const { workspaceId } = workspace;
+
     if (data.action === "create") {
       const panel = await prisma.panel.create({
         data: {
           name: data.name.trim(),
           keyword: data.keyword.trim(),
+          workspaceId,
           filters: JSON.stringify(data.filters || {}),
           results: JSON.stringify(data.results || []),
         },
@@ -80,9 +99,14 @@ export async function POST(req: NextRequest) {
     }
 
     if (data.action === "refresh") {
-      const panel = await prisma.panel.findUnique({ where: { id: data.id } });
+      const panel = await prisma.panel.findFirst({
+        where: { id: data.id, workspaceId },
+      });
       if (!panel) {
-        return NextResponse.json({ error: "Panel not found" }, { status: 404 });
+        return NextResponse.json(
+          { error: `Panel ${data.id} not found in workspace ${workspaceId}` },
+          { status: 404 }
+        );
       }
       const filters: PanelFilters = JSON.parse(panel.filters);
       const results = await runSearch(panel.keyword, filters);
@@ -105,12 +129,31 @@ export async function POST(req: NextRequest) {
 
 export async function DELETE(req: NextRequest) {
   try {
+    const workspace = await resolveWorkspaceId(
+      req.nextUrl.searchParams.get("workspaceId")
+    );
+    if (!workspace.ok) {
+      return NextResponse.json({ error: workspace.error }, { status: workspace.status });
+    }
+
     const id = req.nextUrl.searchParams.get("id");
     if (!id) return NextResponse.json({ error: "ID required" }, { status: 400 });
     const parsedId = parseInt(id);
     if (Number.isNaN(parsedId)) {
       return NextResponse.json({ error: "Invalid panel ID" }, { status: 400 });
     }
+
+    const panel = await prisma.panel.findFirst({
+      where: { id: parsedId, workspaceId: workspace.workspaceId },
+      select: { id: true },
+    });
+    if (!panel) {
+      return NextResponse.json(
+        { error: `Panel ${parsedId} not found in workspace ${workspace.workspaceId}` },
+        { status: 404 }
+      );
+    }
+
     await prisma.panel.delete({ where: { id: parsedId } });
     return NextResponse.json({ success: true });
   } catch (error) {

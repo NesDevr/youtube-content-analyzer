@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { analyzeVideos } from "@/lib/gemini";
 import { prisma } from "@/lib/prisma";
 import { aiIdeasSchema, parseBody } from "@/lib/validation";
+import { resolveWorkspaceId } from "@/lib/workspace";
 
 export async function POST(req: NextRequest) {
   try {
@@ -12,11 +13,18 @@ export async function POST(req: NextRequest) {
     }
 
     const { videos, folderId } = parsed.data;
+
+    const workspace = await resolveWorkspaceId(parsed.data.workspaceId);
+    if (!workspace.ok) {
+      return NextResponse.json({ error: workspace.error }, { status: workspace.status });
+    }
+
     const result = await analyzeVideos(videos);
 
     await prisma.ideaGeneration.create({
       data: {
         folderId: folderId || null,
+        workspaceId: workspace.workspaceId,
         prompt: JSON.stringify(videos.map((v) => v.title)),
         result: JSON.stringify(result),
       },

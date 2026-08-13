@@ -6,8 +6,8 @@ import {
   getVideoDetails,
   getChannelStats,
 } from "@/lib/youtube";
-import { getRelatedQueries } from "@/lib/trends";
 import { prisma } from "@/lib/prisma";
+import { legacyLifetimeAverageRatio } from "@/lib/metrics/outlier";
 import { hashInputs, getCachedAiResponse, setCachedAiResponse } from "@/lib/ai-cache";
 
 export async function POST(req: NextRequest) {
@@ -44,22 +44,20 @@ export async function POST(req: NextRequest) {
     const channelIds = videos.map((v) => v.channelId);
     const channelStats = await getChannelStats(channelIds);
 
-    // Build outlier data
+    // Build outlier data. Videos whose channel has no usable lifetime average
+    // are left out rather than sent to the model as 0x.
     const outlierData = videos
       .map((v) => {
         const channel = channelStats.get(v.channelId);
         if (!channel) return null;
+        const ratio = legacyLifetimeAverageRatio(v.views, channel.averageViews);
+        if (ratio === null) return null;
         return {
           title: v.title,
           channelName: v.channelName,
           views: v.views,
           subscribers: channel.subscribers,
-          outlierScore:
-            Math.round(
-              (channel.averageViews > 0
-                ? v.views / channel.averageViews
-                : 0) * 100
-            ) / 100,
+          outlierScore: Math.round(ratio * 100) / 100,
         };
       })
       .filter((v) => v !== null)
@@ -83,16 +81,7 @@ export async function POST(req: NextRequest) {
       (a, b) => b.subscribers - a.subscribers
     );
 
-    // 2. Get related queries from Google Trends
-    let relatedQueries: { query: string; value: number | string }[] = [];
-    try {
-      const related = await getRelatedQueries(nicheName);
-      relatedQueries = [...related.rising, ...related.top];
-    } catch {
-      // Trends failed — continue without
-    }
-
-    // 3. Generate deep dive analysis with Gemini (check cache first)
+    // 2. Generate deep dive analysis with Gemini (check cache first)
     const deepDiveHash = hashInputs("deep-dive", nicheName, searchKeywords);
     const cachedDeepDive = await getCachedAiResponse(deepDiveHash, "deep-dive");
     let deepDive;
@@ -102,13 +91,12 @@ export async function POST(req: NextRequest) {
       deepDive = await generateNicheDeepDive(
         nicheName,
         outlierData,
-        relatedQueries,
         channelData
       );
       await setCachedAiResponse(deepDiveHash, "deep-dive", JSON.stringify(deepDive));
     }
 
-    // 4. Update DB
+    // 3. Update DB
     await prisma.nicheDiscovery.update({
       where: { id: discoveryId },
       data: {
