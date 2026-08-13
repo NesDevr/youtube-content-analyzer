@@ -1,17 +1,27 @@
 # YT Analyzer
 
-Full-stack YouTube research platform for creators and content teams. YT Analyzer helps find outlier videos, analyze transcripts, compare trends, research keywords, and generate AI-assisted content ideas.
+A personal YouTube research tool. It helps answer two questions with evidence you can inspect: which channel to build, and which video to make next.
 
-Built with **Next.js 16**, **React 19**, **TypeScript**, **Tailwind CSS 4**, **Prisma**, **SQLite**, **Google Gemini**, **YouTube Data API**, and **Google Trends**.
+The app collects measurable facts from the YouTube Data API, calculates outlier metrics from them, and keeps the reasoning visible. It does not invent scores when the underlying data is missing — it reports insufficient data instead.
+
+Built with **Next.js 16**, **React 19**, **TypeScript**, **Tailwind CSS 4**, **Prisma**, and **SQLite**.
 
 ## Features
 
-- **Outlier Finder** - Search YouTube by keyword, filter by views/subscribers/duration/engagement, and surface unusually strong videos.
-- **Video Analyzer** - Paste YouTube URLs, fetch transcripts and metadata, and generate deep analysis of hooks, structure, thumbnails, and content patterns.
-- **Keyword Research** - Combine YouTube autocomplete with AI keyword generation and brainstorming.
-- **Google Trends** - Compare keyword interest over time and inspect rising queries and regional interest.
-- **AI Tools** - Generate ideas from saved folders and summarize videos.
-- **Folders** - Save videos into collections for later research and batch analysis.
+- **Channel Workspaces** - Keep separate planned, active, paused, and archived channel concepts. Searches, folders, and saved evidence are scoped to the selected workspace, while public video and channel data is shared across all of them.
+- **Opportunity Lab** - Analyze a video, a channel, or a topic query. Raw statistics, calculated metrics, sample size, and confidence are shown separately so you can see what each conclusion rests on.
+- **Ideas** - Collect saved evidence and manual observations about topics, titles, thumbnails, and formats into the folders behind a video decision.
+
+## Outlier metric
+
+Performance is measured as a **recent-median view ratio** rather than a lifetime average:
+
+- Comparable uploads are drawn from the channel's uploads playlist within a 180-day window, up to 20 videos, requiring at least 5 to produce a score.
+- Long-form videos, Shorts, and livestreams are classified and compared separately. Shorts are videos of 180 seconds or less.
+- The target video is excluded from its own baseline.
+- Every stored score carries its metric name, formula version (`recent-median-v1`), sample size, comparison window, format, and collection time.
+
+Lifetime-average performance is retained as an explicitly labeled legacy metric. When a baseline cannot be built, the result is an insufficient-data state, not a fallback number.
 
 ## Screenshots
 
@@ -19,22 +29,23 @@ Built with **Next.js 16**, **React 19**, **TypeScript**, **Tailwind CSS 4**, **P
 
 ![Outlier Finder showing ranked YouTube video opportunities](public/screenshots/outlier-finder.png)
 
-### Google Trends
+### Keyword Research
 
-![Google Trends showing keyword interest over time](public/screenshots/google-trends.png)
+![Keyword Research showing YouTube autocomplete suggestions](public/screenshots/keyword-research.png)
 
 ## API Setup
 
-Requires a Google Cloud project with YouTube Data API v3 enabled. Set the project ID and region through environment variables.
+Requires a Google Cloud project with YouTube Data API v3 enabled.
 
-| API | Used for | Auth |
-|-----|----------|------|
-| YouTube Data API v3 | Video search, metadata, and channel stats | `YOUTUBE_API_KEY` |
-| Gemini via `@google/genai` | Analysis, summaries, keyword generation, and idea generation | Google project/location environment |
+| API | Used for | Auth | Required |
+|-----|----------|------|----------|
+| YouTube Data API v3 | Video search, metadata, and channel stats | `YOUTUBE_API_KEY` | Yes |
+| Gemini via `@google/genai` | Optional AI assistance on top of collected evidence | Vertex AI project and location | No |
 
-The app also uses public/non-key integrations:
+Core workflows — managing workspaces, collecting evidence, calculating outliers, and organizing ideas — run without any model provider configured. Nothing silently falls back to a different provider when one is unavailable.
 
-- Google Trends via `google-trends-api`
+The app also uses public, non-key integrations:
+
 - YouTube autocomplete via the public suggest endpoint
 - YouTube transcript extraction via `youtube-transcript`
 
@@ -45,6 +56,11 @@ Create a local `.env` file:
 ```env
 DATABASE_URL="file:./dev.db"
 YOUTUBE_API_KEY=your_youtube_data_api_v3_key
+```
+
+Only needed if you enable the optional Gemini features:
+
+```env
 GOOGLE_PROJECT_ID=your_google_cloud_project_id
 GOOGLE_CLOUD_LOCATION=us-central1
 ```
@@ -58,3 +74,11 @@ npm run dev
 ```
 
 Open [http://localhost:3000](http://localhost:3000) to use the app locally.
+
+## Tests
+
+```bash
+npm test
+```
+
+Covers the outlier metric — medians, baseline exclusions, format separation, insufficient samples — and workspace isolation across folders, searches, and saved evidence.
