@@ -1,4 +1,4 @@
-import { ai, MODEL } from "./gemini";
+import { ai, MODEL, parseModelJson } from "./gemini";
 import type {
   UserProfile,
   RawNiche,
@@ -58,13 +58,7 @@ Return as JSON:
     },
   });
 
-  const text = response.text ?? "";
-  try {
-    const match = text.match(/\{[\s\S]*\}/);
-    return JSON.parse(match ? match[0] : text);
-  } catch {
-    return { niches: [] };
-  }
+  return parseModelJson(response.text, "niche suggestions");
 }
 
 export async function generateNicheDeepDive(
@@ -76,20 +70,14 @@ export async function generateNicheDeepDive(
     subscribers: number;
     outlierScore: number;
   }[],
-  relatedQueries: { query: string; value: number | string }[],
   channelData: { name: string; subscribers: number; avgViews: number }[]
 ): Promise<NicheDeepDive> {
   const outlierSummary = outlierData
     .slice(0, 8)
     .map(
       (v, i) =>
-        `${i + 1}. "${v.title}" by ${v.channelName} — ${v.views.toLocaleString()} views, ${v.subscribers.toLocaleString()} subs, ${v.outlierScore}x outlier`
+        `${i + 1}. "${v.title}" by ${v.channelName} — ${v.views.toLocaleString()} views, ${v.subscribers.toLocaleString()} subs, ${v.outlierScore}x its channel's lifetime average`
     )
-    .join("\n");
-
-  const querySummary = relatedQueries
-    .slice(0, 12)
-    .map((q) => `- "${q.query}" (value: ${q.value})`)
     .join("\n");
 
   const channelSummary = channelData
@@ -104,11 +92,8 @@ export async function generateNicheDeepDive(
     model: MODEL,
     contents: `You are a YouTube niche analyst. Perform a deep dive analysis of the "${nicheName}" niche using REAL DATA provided below.
 
-=== OUTLIER VIDEOS (small channels with viral hits) ===
+=== VIDEOS THAT BEAT THEIR CHANNEL'S LIFETIME AVERAGE ===
 ${outlierSummary || "No outlier data available"}
-
-=== RELATED SEARCH QUERIES (from Google Trends) ===
-${querySummary || "No related query data available"}
 
 === ACTIVE CHANNELS IN THIS NICHE ===
 ${channelSummary || "No channel data available"}
@@ -128,8 +113,6 @@ Return as JSON:
   "keywordOpportunities": [
     {
       "keyword": "Specific keyword/topic",
-      "searchVolume": "High/Medium/Low based on trends data",
-      "competition": "Low/Medium/High based on channel landscape",
       "videoIdeas": ["Specific video idea using this keyword", "Another idea"]
     }
   ],
@@ -156,24 +139,7 @@ Generate 3-5 top formats, 5-8 keyword opportunities, and use the actual channel 
     },
   });
 
-  const text = response.text ?? "";
-  try {
-    const match = text.match(/\{[\s\S]*\}/);
-    return JSON.parse(match ? match[0] : text);
-  } catch {
-    return {
-      nicheName,
-      topFormats: [],
-      keywordOpportunities: [],
-      competitorLandscape: [],
-      audienceInsights: {
-        demographic: "",
-        painPoints: [],
-        contentPreferences: [],
-      },
-      gapAnalysis: "",
-    };
-  }
+  return parseModelJson(response.text, "niche deep dive");
 }
 
 export async function generateContentStrategy(
@@ -244,24 +210,7 @@ Generate 3-4 content pillars that add up to ~100%. Create 3-4 growth phases from
     },
   });
 
-  const text = response.text ?? "";
-  try {
-    const match = text.match(/\{[\s\S]*\}/);
-    return JSON.parse(match ? match[0] : text);
-  } catch {
-    return {
-      postingSchedule: { frequency: "", bestDays: [], reasoning: "" },
-      contentPillars: [],
-      channelPositioning: {
-        uniqueAngle: "",
-        valueProposition: "",
-        differentiator: "",
-      },
-      growthStrategy: [],
-      channelNames: [],
-      channelDescription: "",
-    };
-  }
+  return parseModelJson(response.text, "content strategy");
 }
 
 export async function generateStarterContentPlan(
@@ -275,7 +224,7 @@ export async function generateStarterContentPlan(
 
   const keywords = deepDive.keywordOpportunities
     .slice(0, 5)
-    .map((k) => `- "${k.keyword}" (volume: ${k.searchVolume}, competition: ${k.competition})`)
+    .map((k) => `- "${k.keyword}"`)
     .join("\n");
 
   const response = await ai.models.generateContent({
@@ -324,15 +273,5 @@ Make each video concrete and actionable. Hook scripts should be compelling and s
     },
   });
 
-  const text = response.text ?? "";
-  try {
-    const match = text.match(/\{[\s\S]*\}/);
-    return JSON.parse(match ? match[0] : text);
-  } catch {
-    return {
-      videos: [],
-      publishingOrder: "",
-      firstVideoAdvice: "",
-    };
-  }
+  return parseModelJson(response.text, "starter content plan");
 }

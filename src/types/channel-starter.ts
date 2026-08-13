@@ -27,10 +27,14 @@ export interface OutlierExample {
 export interface NicheSuggestion {
   name: string;
   description: string;
-  opportunityScore: number;
-  competitionLevel: "low" | "medium" | "high";
-  trendDirection: "rising" | "stable" | "declining";
-  trendData: { date: string; value: number }[];
+  /**
+   * 0-100 blend of the legacy lifetime-average ratios found for this niche's
+   * first search keyword. Null when the search returned nothing measurable.
+   */
+  legacySignalScore: number | null;
+  competitionLevel: "low" | "medium" | "high" | null;
+  /** How many returned videos produced a usable ratio. */
+  sampleSize: number;
   contentTypeThatWorks: string;
   exampleOutliers: OutlierExample[];
   whyItFits?: string;
@@ -57,8 +61,6 @@ export interface NicheDeepDive {
   }[];
   keywordOpportunities: {
     keyword: string;
-    searchVolume: string;
-    competition: string;
     videoIdeas: string[];
   }[];
   competitorLandscape: {

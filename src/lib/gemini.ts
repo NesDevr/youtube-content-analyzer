@@ -1,13 +1,43 @@
 import { GoogleGenAI } from "@google/genai";
-import { GOOGLE_PROJECT_ID, GOOGLE_CLOUD_LOCATION } from "./env";
 
-export const ai = new GoogleGenAI({
-  vertexai: true,
-  project: GOOGLE_PROJECT_ID,
-  location: GOOGLE_CLOUD_LOCATION,
-});
+function getConfiguredClient() {
+  const project = process.env.GOOGLE_PROJECT_ID;
+  const location = process.env.GOOGLE_CLOUD_LOCATION;
+  if (!project || !location) {
+    throw new Error(
+      "The optional direct model provider is not configured. Use an explicit Codex research request instead."
+    );
+  }
+  return new GoogleGenAI({ vertexai: true, project, location });
+}
 
-export const MODEL = "gemini-2.5-pro";
+// Lazy construction keeps the evidence and workspace workflows independent of
+// Vertex configuration. These legacy routes are not exposed in the interface.
+export const ai = {
+  get models() {
+    return getConfiguredClient().models;
+  },
+};
+
+export const MODEL = "gemini-2.5-flash";
+
+/**
+ * Pulls the JSON object out of a model response. Throws instead of returning an
+ * empty shape — a blank strategy or an empty idea list on screen must never be
+ * mistaken for a real answer the model actually gave.
+ */
+export function parseModelJson<T>(text: string | undefined, what: string): T {
+  const raw = (text ?? "").trim();
+  if (!raw) {
+    throw new Error(`The model returned an empty response for the ${what}.`);
+  }
+  const match = raw.match(/\{[\s\S]*\}/);
+  try {
+    return JSON.parse(match ? match[0] : raw) as T;
+  } catch {
+    throw new Error(`The model returned unparseable JSON for the ${what}.`);
+  }
+}
 
 export async function generateKeywords(topic: string): Promise<string[]> {
   const response = await ai.models.generateContent({
@@ -31,22 +61,18 @@ Return ONLY a JSON array of strings, no other text. Example: ["keyword 1", "keyw
     },
   });
 
-  const text = response.text ?? "";
+  const raw = (response.text ?? "").trim();
+  const match = raw.match(/\[[\s\S]*\]/);
+  let parsed: unknown;
   try {
-    const parsed = JSON.parse(text);
-    return Array.isArray(parsed) ? parsed : [];
+    parsed = JSON.parse(match ? match[0] : raw);
   } catch {
-    try {
-      const match = text.match(/\[[\s\S]*\]/);
-      if (match) {
-        const parsed = JSON.parse(match[0]);
-        return Array.isArray(parsed) ? parsed : [];
-      }
-    } catch {
-      // JSON extraction failed
-    }
-    return [];
+    throw new Error("The model returned unparseable JSON for the keyword list.");
   }
+  if (!Array.isArray(parsed)) {
+    throw new Error("The model returned a keyword list that is not an array.");
+  }
+  return parsed;
 }
 
 export async function analyzeVideos(
@@ -55,8 +81,7 @@ export async function analyzeVideos(
     views: number;
     likes: number;
     channelName: string;
-    channelSubscribers: number;
-    outlierScore: number;
+    outlierScore: number | null;
     description: string;
   }[]
 ): Promise<{
@@ -66,7 +91,7 @@ export async function analyzeVideos(
     hook: string;
     structure: string;
     thumbnailConcept: string;
-    estimatedPotential: string;
+    whyThisAngle: string;
   }[];
 }> {
   const videoSummary = videos
@@ -74,30 +99,31 @@ export async function analyzeVideos(
       (v, i) =>
         `${i + 1}. "${v.title}" by ${v.channelName}
    Views: ${v.views.toLocaleString()} | Likes: ${v.likes.toLocaleString()}
-   Channel Subscribers: ${v.channelSubscribers.toLocaleString()}
-   Outlier Score: ${v.outlierScore}x
+   Legacy lifetime-average ratio: ${v.outlierScore === null ? "not computed" : `${v.outlierScore}x`}
    Description: ${v.description.slice(0, 200)}`
     )
     .join("\n\n");
 
   const response = await ai.models.generateContent({
     model: MODEL,
-    contents: `You are a YouTube content strategist analyzing viral videos to identify patterns and generate new content ideas.
+    contents: `You are a YouTube content strategist. Find the shared patterns in the videos below and propose new content ideas built on them.
 
-Here are the viral/outlier videos to analyze:
+The only numbers you have are the ones listed. The "legacy lifetime-average ratio" compares a video's views to its channel's all-time average across every upload, so it is a rough signal, not proof a video went viral. Do not invent subscriber counts, view forecasts, or performance figures that are not shown here.
+
+Videos to analyze:
 
 ${videoSummary}
 
 Provide your analysis in the following JSON format:
 {
-  "analysis": "2-3 paragraph analysis of WHY these videos went viral — common patterns, hooks, formats, topics that resonated",
+  "analysis": "2-3 paragraph analysis of the patterns these videos share — hooks, formats, topics, framing. Say plainly where the data is too thin to support a conclusion.",
   "ideas": [
     {
       "topic": "Specific video topic/angle",
       "hook": "First 30 seconds script suggestion to hook viewers",
       "structure": "Video structure outline (intro, sections, conclusion)",
       "thumbnailConcept": "Thumbnail design concept description",
-      "estimatedPotential": "Estimated view potential based on niche data (e.g., '100K-500K views based on niche average')"
+      "whyThisAngle": "Which pattern from the videos above this idea draws on, and why it should carry over"
     }
   ]
 }
@@ -109,16 +135,7 @@ Generate 3-5 unique video ideas. Return ONLY valid JSON.`,
     },
   });
 
-  const text = response.text ?? "";
-  try {
-    const match = text.match(/\{[\s\S]*\}/);
-    return JSON.parse(match ? match[0] : text);
-  } catch {
-    return {
-      analysis: text,
-      ideas: [],
-    };
-  }
+  return parseModelJson(response.text, "video idea generation");
 }
 
 export async function summarizeVideo(
@@ -218,13 +235,7 @@ Be specific and actionable. Don't give generic advice — reference specific mom
     },
   });
 
-  const text = response.text ?? "";
-  try {
-    const match = text.match(/\{[\s\S]*\}/);
-    return JSON.parse(match ? match[0] : text);
-  } catch {
-    return { analyses: [] };
-  }
+  return parseModelJson(response.text, "video analysis");
 }
 
 export async function generateInspiredIdeas(
@@ -289,13 +300,7 @@ Be creative but grounded. Every idea should be backed by patterns that already p
     },
   });
 
-  const text = response.text ?? "";
-  try {
-    const match = text.match(/\{[\s\S]*\}/);
-    return JSON.parse(match ? match[0] : text);
-  } catch {
-    return { ideas: [] };
-  }
+  return parseModelJson(response.text, "inspired video ideas");
 }
 
 export async function brainstormKeywords(
@@ -335,11 +340,5 @@ Generate 20-30 keywords. Return ONLY valid JSON.`,
     },
   });
 
-  const text = response.text ?? "";
-  try {
-    const match = text.match(/\{[\s\S]*\}/);
-    return JSON.parse(match ? match[0] : text);
-  } catch {
-    return { keywords: [], reasoning: text };
-  }
+  return parseModelJson(response.text, "keyword brainstorm");
 }
