@@ -1,10 +1,11 @@
 "use client";
 
-import { useState, useCallback } from "react";
+import { Suspense, useEffect, useRef, useState } from "react";
+import Link from "next/link";
+import { useSearchParams } from "next/navigation";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
-import { Button } from "@/components/ui/button";
-import { Badge } from "@/components/ui/badge";
+import { Button, buttonVariants } from "@/components/ui/button";
 import { VideoCard } from "@/components/video-card";
 import {
   FolderOpen,
@@ -15,6 +16,7 @@ import {
 } from "lucide-react";
 import { toast } from "sonner";
 import { useFolders } from "@/hooks/use-folders";
+import { useWorkspace } from "@/hooks/use-workspace";
 
 interface FolderDetail {
   id: number;
@@ -39,20 +41,27 @@ interface FolderDetail {
   }[];
 }
 
-export default function FoldersPage() {
-  const { folders, refresh: loadFolders } = useFolders();
+function FoldersView() {
+  const { folders, refresh: loadFolders, workspaceId } = useFolders();
+  const { activeWorkspace } = useWorkspace();
+  const searchParams = useSearchParams();
   const [selectedFolder, setSelectedFolder] = useState<FolderDetail | null>(
     null
   );
   const [newFolderName, setNewFolderName] = useState("");
   const [loading, setLoading] = useState(false);
-  const [selectedVideos, setSelectedVideos] = useState<Set<string>>(new Set());
 
   const loadFolder = async (id: number) => {
+    if (workspaceId === null) return;
     setLoading(true);
     try {
-      const res = await fetch(`/api/folders/${id}`);
+      const res = await fetch(`/api/folders/${id}?workspaceId=${workspaceId}`);
       const data = await res.json();
+      if (!res.ok) {
+        toast.error(data.error || "Failed to open folder");
+        setSelectedFolder(null);
+        return;
+      }
       setSelectedFolder(data.folder);
     } catch {
       setSelectedFolder(null);
@@ -63,18 +72,27 @@ export default function FoldersPage() {
 
   const createFolder = async () => {
     if (!newFolderName.trim()) return;
+    if (workspaceId === null) {
+      toast.error("Select a channel workspace first");
+      return;
+    }
     try {
       const res = await fetch("/api/folders", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ action: "create", name: newFolderName.trim() }),
+        body: JSON.stringify({
+          action: "create",
+          name: newFolderName.trim(),
+          workspaceId,
+        }),
       });
       if (res.ok) {
         toast.success("Folder created");
         setNewFolderName("");
         loadFolders();
       } else {
-        toast.error("Failed to create folder");
+        const data = await res.json().catch(() => ({}));
+        toast.error(data.error || "Failed to create folder");
       }
     } catch {
       toast.error("Failed to create folder");
@@ -82,9 +100,12 @@ export default function FoldersPage() {
   };
 
   const deleteFolder = async (id: number) => {
+    if (workspaceId === null) return;
     if (!confirm("Delete this folder?")) return;
     try {
-      const res = await fetch(`/api/folders?id=${id}`, { method: "DELETE" });
+      const res = await fetch(`/api/folders?id=${id}&workspaceId=${workspaceId}`, {
+        method: "DELETE",
+      });
       if (res.ok) {
         toast.success("Folder deleted");
         if (selectedFolder?.id === id) setSelectedFolder(null);
@@ -98,7 +119,7 @@ export default function FoldersPage() {
   };
 
   const removeVideo = async (videoId: string) => {
-    if (!selectedFolder) return;
+    if (!selectedFolder || workspaceId === null) return;
     try {
       const res = await fetch("/api/folders", {
         method: "POST",
@@ -107,6 +128,7 @@ export default function FoldersPage() {
           action: "removeVideo",
           folderId: selectedFolder.id,
           videoId,
+          workspaceId,
         }),
       });
       if (res.ok) {
@@ -120,14 +142,19 @@ export default function FoldersPage() {
     }
   };
 
-  const toggleVideoSelect = useCallback((videoId: string) => {
-    setSelectedVideos((prev) => {
-      const next = new Set(prev);
-      if (next.has(videoId)) next.delete(videoId);
-      else next.add(videoId);
-      return next;
-    });
-  }, []);
+  // The dashboard links to /folders?id=N, so that folder opens directly.
+  // Only once per id — reopening after Back would trap the user in the detail view.
+  const openedFromUrl = useRef<string | null>(null);
+  useEffect(() => {
+    const id = searchParams.get("id");
+    if (!id || workspaceId === null || openedFromUrl.current === id) return;
+    const parsedId = parseInt(id);
+    if (Number.isNaN(parsedId)) return;
+    openedFromUrl.current = id;
+    loadFolder(parsedId);
+    // loadFolder is recreated every render; the ref guard is what limits this.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [searchParams, workspaceId]);
 
   // Folder detail view
   if (selectedFolder) {
@@ -137,10 +164,7 @@ export default function FoldersPage() {
           <Button
             variant="ghost"
             size="sm"
-            onClick={() => {
-              setSelectedFolder(null);
-              setSelectedVideos(new Set());
-            }}
+            onClick={() => setSelectedFolder(null)}
           >
             <ArrowLeft className="h-4 w-4 mr-1" />
             Back
@@ -151,9 +175,6 @@ export default function FoldersPage() {
               {selectedFolder.videos.length} videos
             </p>
           </div>
-          {selectedVideos.size > 0 && (
-            <Badge className="ml-auto">{selectedVideos.size} selected</Badge>
-          )}
         </div>
 
         {loading ? (
@@ -180,8 +201,7 @@ export default function FoldersPage() {
                   channelSubscribers: null,
                   channelAverageViews: null,
                 }}
-                onSelect={toggleVideoSelect}
-                selected={selectedVideos.has(video.id)}
+                onRemove={removeVideo}
               />
             ))}
           </div>
@@ -194,13 +214,38 @@ export default function FoldersPage() {
   return (
     <div className="p-8 max-w-6xl mx-auto space-y-6 animate-fade-in-up">
       <div>
-        <h1 className="text-3xl font-bold tracking-tight">Folders</h1>
+        <h1 className="text-3xl font-bold tracking-tight">Saved evidence</h1>
         <p className="text-muted-foreground mt-1">
-          Organize saved videos into collections for analysis and idea
-          generation.
+          Organize saved videos into collections for later research and idea development.
+        </p>
+        <p className="text-xs text-muted-foreground mt-2">
+          {activeWorkspace
+            ? `Workspace: ${activeWorkspace.name}`
+            : "No channel workspace selected."}
         </p>
       </div>
 
+      {/* Folders belong to a workspace, so without one there is nothing to list
+          and nothing to create — saying "no folders yet" here would claim the
+          workspaces are empty when they are only out of scope. */}
+      {workspaceId === null ? (
+        <Card>
+          <CardContent className="py-12 text-center space-y-3">
+            <FolderOpen className="h-12 w-12 mx-auto text-muted-foreground" />
+            <p className="text-muted-foreground">
+              No channel workspace is selected, so no folders can be listed or
+              created. Any folders you have belong to a workspace.
+            </p>
+            <Link
+              href="/workspaces"
+              className={buttonVariants({ variant: "outline" })}
+            >
+              Go to Channel Workspaces
+            </Link>
+          </CardContent>
+        </Card>
+      ) : (
+      <>
       {/* Create folder */}
       <Card>
         <CardContent className="pt-6">
@@ -266,6 +311,16 @@ export default function FoldersPage() {
           ))}
         </div>
       )}
+      </>
+      )}
     </div>
+  );
+}
+
+export default function FoldersPage() {
+  return (
+    <Suspense fallback={null}>
+      <FoldersView />
+    </Suspense>
   );
 }

@@ -1,11 +1,13 @@
 "use client";
 
 import { useState, useCallback, useMemo } from "react";
+import Link from "next/link";
 import { Card, CardContent } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { Label } from "@/components/ui/label";
 import { Badge } from "@/components/ui/badge";
+import { Checkbox } from "@/components/ui/checkbox";
 import {
   Select,
   SelectContent,
@@ -18,6 +20,7 @@ import { Search, Loader2, Save, SlidersHorizontal, Trash2, Play, ChevronDown, Ch
 import { toast } from "sonner";
 import { useFolders } from "@/hooks/use-folders";
 import { usePanels } from "@/hooks/use-panels";
+import { useWorkspace } from "@/hooks/use-workspace";
 import type { PanelFilters } from "@/hooks/use-panels";
 import type { VideoResult } from "@/types/video";
 
@@ -32,12 +35,16 @@ interface FilterPreset {
   datePreset: string;
   language: string;
   sortBy: string;
+  /** Only the Shorts preset opts back into Shorts; everything else excludes them. */
+  excludeShorts: boolean;
 }
 
+// Preset descriptions state the filter values, not a promise about the results.
 const FILTER_PRESETS: FilterPreset[] = [
   {
-    label: "Long-Form Outliers",
-    description: "Viral long videos from small channels (EN, last year)",
+    label: "Long-Form, Small Channels",
+    description:
+      "20+ min, 100k+ views, channels under 200k subs, English, past year",
     maxSubs: "200000",
     minViews: "100000",
     minDuration: "20",
@@ -45,11 +52,12 @@ const FILTER_PRESETS: FilterPreset[] = [
     minEngagement: "",
     datePreset: "1y",
     language: "en",
+    excludeShorts: true,
     sortBy: "outlier_score",
   },
   {
-    label: "Hidden Gems",
-    description: "High engagement from tiny channels",
+    label: "High Engagement, Tiny Channels",
+    description: "5%+ engagement, 50k+ views, channels under 50k subs, past year",
     maxSubs: "50000",
     minViews: "50000",
     minDuration: "",
@@ -57,11 +65,12 @@ const FILTER_PRESETS: FilterPreset[] = [
     minEngagement: "5",
     datePreset: "1y",
     language: "",
+    excludeShorts: true,
     sortBy: "engagement",
   },
   {
-    label: "Trending Now",
-    description: "Videos blowing up in the last 7 days",
+    label: "Published This Week",
+    description: "Past 7 days, 10k+ views, under 500k subs, sorted by views/hour",
     maxSubs: "500000",
     minViews: "10000",
     minDuration: "",
@@ -69,11 +78,12 @@ const FILTER_PRESETS: FilterPreset[] = [
     minEngagement: "",
     datePreset: "7d",
     language: "",
+    excludeShorts: true,
     sortBy: "views_per_hour",
   },
   {
-    label: "Mid-Size Wins",
-    description: "Solid performers from mid-size channels",
+    label: "Mid-Size Channels",
+    description: "8+ min, 200k+ views, 3%+ engagement, under 500k subs, past 3 months",
     maxSubs: "500000",
     minViews: "200000",
     minDuration: "8",
@@ -81,11 +91,13 @@ const FILTER_PRESETS: FilterPreset[] = [
     minEngagement: "3",
     datePreset: "3m",
     language: "",
+    excludeShorts: true,
     sortBy: "outlier_score",
   },
   {
-    label: "Shorts Outliers",
-    description: "Viral short-form content under 4 min",
+    label: "Shorts (opt-in)",
+    description:
+      "The only preset that keeps Shorts: under 4 min, 500k+ views, under 200k subs",
     maxSubs: "200000",
     minViews: "500000",
     minDuration: "",
@@ -93,6 +105,7 @@ const FILTER_PRESETS: FilterPreset[] = [
     minEngagement: "",
     datePreset: "3m",
     language: "",
+    excludeShorts: false,
     sortBy: "views",
   },
 ];
@@ -105,6 +118,34 @@ const DATE_PRESETS = [
   { label: "Last 6 months", value: "6m" },
   { label: "Last year", value: "1y" },
   { label: "Last 2 years", value: "2y" },
+];
+
+// Base UI's <SelectValue> shows the raw value unless the root is given the
+// items, which is why these lists are the single source for both the popup
+// entries and the label on the closed trigger.
+const DATE_PRESET_ITEMS = DATE_PRESETS.map((p) => ({
+  value: p.value || "any_time",
+  label: p.label,
+}));
+
+const LANGUAGE_ITEMS = [
+  { value: "any_lang", label: "Any" },
+  { value: "en", label: "English" },
+  { value: "es", label: "Spanish" },
+  { value: "pt", label: "Portuguese" },
+  { value: "fr", label: "French" },
+  { value: "de", label: "German" },
+  { value: "ja", label: "Japanese" },
+  { value: "ko", label: "Korean" },
+  { value: "hi", label: "Hindi" },
+];
+
+const SORT_ITEMS = [
+  { value: "outlier_score", label: "Legacy lifetime-average score" },
+  { value: "views", label: "Views" },
+  { value: "views_per_hour", label: "Views/Hour" },
+  { value: "engagement", label: "Engagement Rate" },
+  { value: "newest", label: "Newest First" },
 ];
 
 function getDateRange(preset: string): { after?: string; before?: string } {
@@ -134,6 +175,8 @@ export default function OutlierFinderPage() {
   const [datePreset, setDatePreset] = useState("");
   const [language, setLanguage] = useState("");
   const [sortBy, setSortBy] = useState("outlier_score");
+  // Shorts are off by default: this tool is for long-form research.
+  const [excludeShorts, setExcludeShorts] = useState(true);
   const [showFilters, setShowFilters] = useState(false);
   const [activePreset, setActivePreset] = useState<string | null>(null);
 
@@ -146,6 +189,7 @@ export default function OutlierFinderPage() {
     setDatePreset(preset.datePreset);
     setLanguage(preset.language);
     setSortBy(preset.sortBy);
+    setExcludeShorts(preset.excludeShorts);
     setActivePreset(preset.label);
     setShowFilters(true);
   }, []);
@@ -159,23 +203,27 @@ export default function OutlierFinderPage() {
     setDatePreset("");
     setLanguage("");
     setSortBy("outlier_score");
+    setExcludeShorts(true);
     setActivePreset(null);
   }, []);
 
   const [results, setResults] = useState<VideoResult[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
+  const { workspaceId, activeWorkspace } = useWorkspace();
   const { folders } = useFolders();
   const { panels, refresh: refreshPanels, deletePanel } = usePanels();
   const [showSavedSearches, setShowSavedSearches] = useState(false);
-  const [selectedVideos, setSelectedVideos] = useState<Set<string>>(new Set());
+  // Distinguishes "nothing searched yet" from "searched and found nothing".
+  const [searched, setSearched] = useState(false);
 
-  const handleSearch = useCallback(async () => {
-    if (!keyword.trim()) return;
+  const handleSearch = useCallback(async (overrideKeyword?: string) => {
+    const term = (overrideKeyword ?? keyword).trim();
+    if (!term) return;
     setLoading(true);
     setError("");
     setResults([]);
-    setSelectedVideos(new Set());
+    setSearched(true);
 
     const dateRange = getDateRange(datePreset);
 
@@ -184,7 +232,7 @@ export default function OutlierFinderPage() {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          keyword: keyword.trim(),
+          keyword: term,
           maxSubscribers: maxSubs ? parseInt(maxSubs) : undefined,
           minViews: minViews ? parseInt(minViews) : undefined,
           minDuration: minDuration ? parseFloat(minDuration) : undefined,
@@ -193,6 +241,7 @@ export default function OutlierFinderPage() {
           publishedAfter: dateRange.after,
           publishedBefore: dateRange.before,
           language: language || undefined,
+          excludeShorts,
           maxResults: 50,
         }),
       });
@@ -208,9 +257,20 @@ export default function OutlierFinderPage() {
     } finally {
       setLoading(false);
     }
-  }, [keyword, maxSubs, minViews, minDuration, maxDuration, minEngagement, datePreset, language]);
+  }, [keyword, maxSubs, minViews, minDuration, maxDuration, minEngagement, datePreset, language, excludeShorts]);
 
   const handleSaveToFolder = useCallback(async (videoId: string, folderId: number) => {
+    if (workspaceId === null) {
+      toast.error("Select a channel workspace first");
+      return;
+    }
+    // Search results only exist in memory, so send the whole video with the
+    // request — the API persists it before linking it to the folder.
+    const video = results.find((v) => v.id === videoId);
+    if (!video) {
+      toast.error("Video is no longer in the current results");
+      return;
+    }
     try {
       const res = await fetch("/api/folders", {
         method: "POST",
@@ -219,19 +279,40 @@ export default function OutlierFinderPage() {
           action: "addVideo",
           videoId,
           folderId,
+          workspaceId,
+          video: {
+            id: video.id,
+            title: video.title,
+            channelId: video.channelId,
+            channelName: video.channelName,
+            views: video.views,
+            likes: video.likes,
+            comments: video.comments,
+            duration: video.duration,
+            publishedAt: video.publishedAt,
+            thumbnailUrl: video.thumbnailUrl,
+            description: video.description,
+            outlierScore: video.outlierScore,
+            viewsPerHour: video.viewsPerHour,
+          },
         }),
       });
       if (res.ok) {
         toast.success("Video saved to folder");
       } else {
-        toast.error("Failed to save video");
+        const data = await res.json().catch(() => ({}));
+        toast.error(data.error || "Failed to save video");
       }
-    } catch {
-      toast.error("Failed to save video");
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "Failed to save video");
     }
-  }, []);
+  }, [results, workspaceId]);
 
   const handleSavePanel = useCallback(async () => {
+    if (workspaceId === null) {
+      toast.error("Select a channel workspace first");
+      return;
+    }
     const name = prompt("Panel name:");
     if (!name) return;
     try {
@@ -242,6 +323,7 @@ export default function OutlierFinderPage() {
           action: "create",
           name,
           keyword,
+          workspaceId,
           filters: {
             maxSubscribers: maxSubs ? parseInt(maxSubs) : null,
             minViews: minViews ? parseInt(minViews) : null,
@@ -251,6 +333,7 @@ export default function OutlierFinderPage() {
             datePreset,
             language,
             sortBy,
+            excludeShorts,
           },
           results,
         }),
@@ -259,12 +342,13 @@ export default function OutlierFinderPage() {
         toast.success("Search saved");
         refreshPanels();
       } else {
-        toast.error("Failed to save search");
+        const data = await res.json().catch(() => ({}));
+        toast.error(data.error || "Failed to save search");
       }
     } catch {
       toast.error("Failed to save search");
     }
-  }, [keyword, maxSubs, minViews, minDuration, maxDuration, minEngagement, datePreset, language, sortBy, results, refreshPanels]);
+  }, [keyword, maxSubs, minViews, minDuration, maxDuration, minEngagement, datePreset, language, sortBy, excludeShorts, results, refreshPanels, workspaceId]);
 
   const loadPanel = useCallback((panelKeyword: string, filtersJson: string, resultsJson: string) => {
     try {
@@ -278,11 +362,12 @@ export default function OutlierFinderPage() {
       setDatePreset(f.datePreset || "");
       setLanguage(f.language || "");
       setSortBy(f.sortBy || "outlier_score");
+      setExcludeShorts(f.excludeShorts !== false);
       setShowFilters(true);
       setActivePreset(null);
       const savedResults = JSON.parse(resultsJson || "[]");
       setResults(savedResults);
-      setSelectedVideos(new Set());
+      setSearched(true);
     } catch {
       setKeyword(panelKeyword);
     }
@@ -296,19 +381,23 @@ export default function OutlierFinderPage() {
   }, [deletePanel]);
 
   const handleRefreshPanel = useCallback(async (id: number) => {
+    if (workspaceId === null) {
+      toast.error("Select a channel workspace first");
+      return;
+    }
     setRefreshingPanelId(id);
     try {
       const res = await fetch("/api/panels", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ action: "refresh", id }),
+        body: JSON.stringify({ action: "refresh", id, workspaceId }),
       });
       if (res.ok) {
         const data = await res.json();
         const updated = data.panel;
         const savedResults = JSON.parse(updated.results || "[]");
         setResults(savedResults);
-        setSelectedVideos(new Set());
+        setSearched(true);
         // Restore filters from the panel
         const f: PanelFilters = JSON.parse(updated.filters || "{}");
         setKeyword(updated.keyword);
@@ -320,6 +409,7 @@ export default function OutlierFinderPage() {
         setDatePreset(f.datePreset || "");
         setLanguage(f.language || "");
         setSortBy(f.sortBy || "outlier_score");
+        setExcludeShorts(f.excludeShorts !== false);
         setShowFilters(true);
         setActivePreset(null);
         await refreshPanels();
@@ -332,7 +422,7 @@ export default function OutlierFinderPage() {
     } finally {
       setRefreshingPanelId(null);
     }
-  }, [refreshPanels]);
+  }, [refreshPanels, workspaceId]);
 
   const sortedResults = useMemo(() => {
     return [...results].sort((a, b) => {
@@ -340,33 +430,45 @@ export default function OutlierFinderPage() {
         case "views":
           return b.views - a.views;
         case "views_per_hour":
-          return (b.viewsPerHour || 0) - (a.viewsPerHour || 0);
+          return (b.viewsPerHour ?? -1) - (a.viewsPerHour ?? -1);
         case "engagement":
-          return (b.engagementRate || 0) - (a.engagementRate || 0);
+          return (b.engagementRate ?? -1) - (a.engagementRate ?? -1);
         case "newest":
           return new Date(b.publishedAt).getTime() - new Date(a.publishedAt).getTime();
         default:
-          return (b.outlierScore || 0) - (a.outlierScore || 0);
+          // Unmeasurable videos sort last instead of tying with a real 0.
+          return (b.outlierScore ?? -1) - (a.outlierScore ?? -1);
       }
     });
   }, [results, sortBy]);
 
-  const toggleVideoSelect = useCallback((videoId: string) => {
-    setSelectedVideos((prev) => {
-      const next = new Set(prev);
-      if (next.has(videoId)) next.delete(videoId);
-      else next.add(videoId);
-      return next;
-    });
-  }, []);
+  // "Find Similar" re-runs the search on the first few words of a title rather
+  // than only dropping them into the box and leaving the user to press Search.
+  const handleSearchSimilar = useCallback(
+    (title: string) => {
+      const term = title.split(" ").slice(0, 4).join(" ");
+      setKeyword(term);
+      handleSearch(term);
+    },
+    [handleSearch]
+  );
 
   return (
     <div className="p-8 max-w-6xl mx-auto space-y-6 animate-fade-in-up">
       <div>
         <h1 className="text-3xl font-bold tracking-tight">Outlier Finder</h1>
         <p className="text-muted-foreground mt-1">
-          Find viral videos from small channels — videos that massively
-          outperform their channel&apos;s average.
+          Keyword discovery ranked by the legacy lifetime-average score. That
+          score mixes Shorts, long-form and livestreams — use{" "}
+          <Link href="/outlier-lab" className="text-primary hover:underline">
+            Outlier Lab
+          </Link>{" "}
+          to get a video&apos;s real recent-median baseline.
+        </p>
+        <p className="text-xs text-muted-foreground mt-2">
+          {activeWorkspace
+            ? `Saving to workspace: ${activeWorkspace.name}`
+            : "No channel workspace selected — saving is disabled."}
         </p>
       </div>
 
@@ -384,7 +486,7 @@ export default function OutlierFinderPage() {
                 className="h-11"
               />
             </div>
-            <Button onClick={handleSearch} disabled={loading} className="h-11 px-6">
+            <Button onClick={() => handleSearch()} disabled={loading} className="h-11 px-6">
               {loading ? (
                 <Loader2 className="h-4 w-4 animate-spin mr-2" />
               ) : (
@@ -491,13 +593,17 @@ export default function OutlierFinderPage() {
                 <Label className="text-xs text-muted-foreground">
                   Published
                 </Label>
-                <Select value={datePreset} onValueChange={(v) => setDatePreset(v ?? "")}>
+                <Select
+                  items={DATE_PRESET_ITEMS}
+                  value={datePreset}
+                  onValueChange={(v) => setDatePreset(v ?? "")}
+                >
                   <SelectTrigger>
                     <SelectValue placeholder="Any time" />
                   </SelectTrigger>
                   <SelectContent>
-                    {DATE_PRESETS.map((p) => (
-                      <SelectItem key={p.value} value={p.value || "any_time"}>
+                    {DATE_PRESET_ITEMS.map((p) => (
+                      <SelectItem key={p.value} value={p.value}>
                         {p.label}
                       </SelectItem>
                     ))}
@@ -509,6 +615,7 @@ export default function OutlierFinderPage() {
                   Language
                 </Label>
                 <Select
+                  items={LANGUAGE_ITEMS}
                   value={language || "any_lang"}
                   onValueChange={(v) => setLanguage(!v || v === "any_lang" ? "" : v)}
                 >
@@ -516,32 +623,46 @@ export default function OutlierFinderPage() {
                     <SelectValue placeholder="Any" />
                   </SelectTrigger>
                   <SelectContent>
-                    <SelectItem value="any_lang">Any</SelectItem>
-                    <SelectItem value="en">English</SelectItem>
-                    <SelectItem value="es">Spanish</SelectItem>
-                    <SelectItem value="pt">Portuguese</SelectItem>
-                    <SelectItem value="fr">French</SelectItem>
-                    <SelectItem value="de">German</SelectItem>
-                    <SelectItem value="ja">Japanese</SelectItem>
-                    <SelectItem value="ko">Korean</SelectItem>
-                    <SelectItem value="hi">Hindi</SelectItem>
+                    {LANGUAGE_ITEMS.map((l) => (
+                      <SelectItem key={l.value} value={l.value}>
+                        {l.label}
+                      </SelectItem>
+                    ))}
                   </SelectContent>
                 </Select>
+              </div>
+              <div className="flex items-end pb-1">
+                <label className="flex items-center gap-2 text-sm cursor-pointer select-none">
+                  <Checkbox
+                    checked={excludeShorts}
+                    onCheckedChange={(checked) => setExcludeShorts(checked === true)}
+                  />
+                  <span>
+                    Exclude Shorts
+                    <span className="block text-[11px] text-muted-foreground">
+                      asks YouTube for 4 min+ only
+                    </span>
+                  </span>
+                </label>
               </div>
               <div>
                 <Label className="text-xs text-muted-foreground">
                   Sort By
                 </Label>
-                <Select value={sortBy} onValueChange={(v) => setSortBy(v ?? "outlier_score")}>
+                <Select
+                  items={SORT_ITEMS}
+                  value={sortBy}
+                  onValueChange={(v) => setSortBy(v ?? "outlier_score")}
+                >
                   <SelectTrigger>
                     <SelectValue />
                   </SelectTrigger>
                   <SelectContent>
-                    <SelectItem value="outlier_score">Outlier Score</SelectItem>
-                    <SelectItem value="views">Views</SelectItem>
-                    <SelectItem value="views_per_hour">Views/Hour</SelectItem>
-                    <SelectItem value="engagement">Engagement Rate</SelectItem>
-                    <SelectItem value="newest">Newest First</SelectItem>
+                    {SORT_ITEMS.map((s) => (
+                      <SelectItem key={s.value} value={s.value}>
+                        {s.label}
+                      </SelectItem>
+                    ))}
                   </SelectContent>
                 </Select>
               </div>
@@ -608,9 +729,6 @@ export default function OutlierFinderPage() {
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-3">
             <Badge variant="secondary">{results.length} results</Badge>
-            {selectedVideos.size > 0 && (
-              <Badge>{selectedVideos.size} selected</Badge>
-            )}
           </div>
           <div className="flex gap-2">
             <Button variant="outline" size="sm" onClick={handleSavePanel}>
@@ -638,9 +756,27 @@ export default function OutlierFinderPage() {
             <div className="absolute inset-0 h-8 w-8 rounded-full bg-primary/20 animate-ping" />
           </div>
           <p className="text-sm text-muted-foreground mt-4">
-            Searching YouTube and calculating outlier scores...
+            Searching YouTube and computing legacy scores...
           </p>
         </div>
+      )}
+
+      {/* Empty state — a filtered-out search looked identical to a blank page */}
+      {searched && !loading && !error && results.length === 0 && (
+        <Card>
+          <CardContent className="py-12 text-center space-y-2">
+            <p className="text-muted-foreground">
+              No videos matched. Either the keyword returned nothing on YouTube,
+              or every result was removed by the current filters — the search
+              response does not say which.
+            </p>
+            <p className="text-xs text-muted-foreground">
+              Raise Max Subscribers, lower Min Views or Min Engagement, widen
+              Published
+              {excludeShorts ? ", or untick Exclude Shorts" : ""}.
+            </p>
+          </CardContent>
+        </Card>
       )}
 
       {/* Results */}
@@ -651,11 +787,7 @@ export default function OutlierFinderPage() {
             video={video}
             folders={folders}
             onSaveToFolder={handleSaveToFolder}
-            onSelect={toggleVideoSelect}
-            selected={selectedVideos.has(video.id)}
-            onSearchSimilar={(title) => {
-              setKeyword(title.split(" ").slice(0, 4).join(" "));
-            }}
+            onSearchSimilar={handleSearchSimilar}
           />
         ))}
       </div>

@@ -5,12 +5,9 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { Textarea } from "@/components/ui/textarea";
 import {
   Search,
   Loader2,
-  Sparkles,
   ArrowRight,
   Copy,
   Check,
@@ -20,70 +17,36 @@ import Link from "next/link";
 export default function KeywordsPage() {
   const [query, setQuery] = useState("");
   const [autocompleteResults, setAutocompleteResults] = useState<string[]>([]);
-  const [aiKeywords, setAiKeywords] = useState<string[]>([]);
-  const [brainstormResults, setBrainstormResults] = useState<{
-    keywords: string[];
-    reasoning: string;
-  } | null>(null);
-  const [nicheInput, setNicheInput] = useState("");
   const [loading, setLoading] = useState({
     autocomplete: false,
-    ai: false,
-    brainstorm: false,
   });
   const [copiedIdx, setCopiedIdx] = useState<number | null>(null);
+  const [errors, setErrors] = useState<{
+    autocomplete: string;
+  }>({ autocomplete: "" });
 
   const handleAutocomplete = useCallback(async () => {
     if (!query.trim()) return;
     setLoading((l) => ({ ...l, autocomplete: true }));
+    setErrors((e) => ({ ...e, autocomplete: "" }));
     try {
       const res = await fetch(
         `/api/keywords/autocomplete?q=${encodeURIComponent(query.trim())}`
       );
       const data = await res.json();
+      if (!res.ok) throw new Error(data.error || "Autocomplete failed");
       setAutocompleteResults(data.suggestions || []);
-    } catch {
+    } catch (err) {
       setAutocompleteResults([]);
+      setErrors((e) => ({
+        ...e,
+        autocomplete:
+          err instanceof Error ? err.message : "Autocomplete failed",
+      }));
     } finally {
       setLoading((l) => ({ ...l, autocomplete: false }));
     }
   }, [query]);
-
-  const handleAIKeywords = useCallback(async () => {
-    if (!query.trim()) return;
-    setLoading((l) => ({ ...l, ai: true }));
-    try {
-      const res = await fetch("/api/keywords/ai", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ topic: query.trim() }),
-      });
-      const data = await res.json();
-      setAiKeywords(data.keywords || []);
-    } catch {
-      setAiKeywords([]);
-    } finally {
-      setLoading((l) => ({ ...l, ai: false }));
-    }
-  }, [query]);
-
-  const handleBrainstorm = useCallback(async () => {
-    if (!nicheInput.trim()) return;
-    setLoading((l) => ({ ...l, brainstorm: true }));
-    try {
-      const res = await fetch("/api/keywords/ai", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ topic: nicheInput.trim(), mode: "brainstorm" }),
-      });
-      const data = await res.json();
-      setBrainstormResults(data);
-    } catch {
-      setBrainstormResults(null);
-    } finally {
-      setLoading((l) => ({ ...l, brainstorm: false }));
-    }
-  }, [nicheInput]);
 
   const copyKeyword = (kw: string, idx: number) => {
     navigator.clipboard.writeText(kw);
@@ -135,19 +98,12 @@ export default function KeywordsPage() {
       <div>
         <h1 className="text-3xl font-bold tracking-tight">Keyword Research</h1>
         <p className="text-muted-foreground mt-1">
-          Discover what people search for on YouTube. Use autocomplete data and
-          AI suggestions to find profitable niches.
+          YouTube&apos;s own autocomplete suggestions for a topic. These are
+          starting points for a search, not search-volume data or evidence of demand.
         </p>
       </div>
 
-      <Tabs defaultValue="search" className="space-y-6">
-        <TabsList>
-          <TabsTrigger value="search">Search Keywords</TabsTrigger>
-          <TabsTrigger value="brainstorm">AI Brainstorm</TabsTrigger>
-        </TabsList>
-
-        {/* Search Keywords Tab */}
-        <TabsContent value="search" className="space-y-6">
+      <div className="space-y-6">
           <Card>
             <CardContent className="pt-6">
               <div className="flex gap-3">
@@ -161,12 +117,11 @@ export default function KeywordsPage() {
                 <Button
                   onClick={() => {
                     handleAutocomplete();
-                    handleAIKeywords();
                   }}
-                  disabled={loading.autocomplete || loading.ai}
+                  disabled={loading.autocomplete}
                   className="h-11 px-6"
                 >
-                  {loading.autocomplete || loading.ai ? (
+                  {loading.autocomplete ? (
                     <Loader2 className="h-4 w-4 animate-spin mr-2" />
                   ) : (
                     <Search className="h-4 w-4 mr-2" />
@@ -177,7 +132,7 @@ export default function KeywordsPage() {
             </CardContent>
           </Card>
 
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+          <div className="max-w-2xl">
             {/* Autocomplete Results */}
             <Card className="relative overflow-hidden">
               <div className="absolute inset-x-0 top-0 h-px bg-blue-500/50" />
@@ -197,6 +152,10 @@ export default function KeywordsPage() {
                   <div className="flex items-center justify-center py-8">
                     <Loader2 className="h-5 w-5 animate-spin text-muted-foreground" />
                   </div>
+                ) : errors.autocomplete ? (
+                  <p className="text-sm text-destructive py-8 text-center">
+                    {errors.autocomplete}
+                  </p>
                 ) : autocompleteResults.length > 0 ? (
                   <KeywordList
                     keywords={autocompleteResults}
@@ -211,96 +170,8 @@ export default function KeywordsPage() {
               </CardContent>
             </Card>
 
-            {/* AI Keywords */}
-            <Card className="relative overflow-hidden">
-              <div className="absolute inset-x-0 top-0 h-px bg-purple-500/50" />
-              <CardHeader>
-                <CardTitle className="text-base flex items-center gap-2">
-                  <Sparkles className="h-4 w-4" />
-                  AI Keyword Suggestions
-                  {aiKeywords.length > 0 && (
-                    <Badge variant="secondary">{aiKeywords.length}</Badge>
-                  )}
-                </CardTitle>
-              </CardHeader>
-              <CardContent>
-                {loading.ai ? (
-                  <div className="flex items-center justify-center py-8">
-                    <Loader2 className="h-5 w-5 animate-spin text-muted-foreground" />
-                  </div>
-                ) : aiKeywords.length > 0 ? (
-                  <KeywordList keywords={aiKeywords} prefix="ai" />
-                ) : (
-                  <p className="text-sm text-muted-foreground py-8 text-center">
-                    AI will suggest keywords optimized for finding viral content
-                    in your niche.
-                  </p>
-                )}
-              </CardContent>
-            </Card>
           </div>
-        </TabsContent>
-
-        {/* AI Brainstorm Tab */}
-        <TabsContent value="brainstorm" className="space-y-6">
-          <Card>
-            <CardHeader>
-              <CardTitle className="text-base">
-                AI Keyword Brainstorm
-              </CardTitle>
-            </CardHeader>
-            <CardContent className="space-y-4">
-              <Textarea
-                placeholder="Describe a broad niche you want to explore. E.g., 'stoicism and self-improvement for men aged 20-35' or 'horror stories narration for faceless channels'"
-                value={nicheInput}
-                onChange={(e) => setNicheInput(e.target.value)}
-                rows={3}
-              />
-              <Button
-                onClick={handleBrainstorm}
-                disabled={loading.brainstorm}
-              >
-                {loading.brainstorm ? (
-                  <Loader2 className="h-4 w-4 animate-spin mr-2" />
-                ) : (
-                  <Sparkles className="h-4 w-4 mr-2" />
-                )}
-                Generate Keywords
-              </Button>
-            </CardContent>
-          </Card>
-
-          {brainstormResults && (
-            <>
-              {brainstormResults.reasoning && (
-                <Card>
-                  <CardContent className="pt-6">
-                    <p className="text-sm text-muted-foreground">
-                      {brainstormResults.reasoning}
-                    </p>
-                  </CardContent>
-                </Card>
-              )}
-              <Card>
-                <CardHeader>
-                  <CardTitle className="text-base flex items-center gap-2">
-                    Generated Keywords
-                    <Badge variant="secondary">
-                      {brainstormResults.keywords.length}
-                    </Badge>
-                  </CardTitle>
-                </CardHeader>
-                <CardContent>
-                  <KeywordList
-                    keywords={brainstormResults.keywords}
-                    prefix="brain"
-                  />
-                </CardContent>
-              </Card>
-            </>
-          )}
-        </TabsContent>
-      </Tabs>
+      </div>
     </div>
   );
 }
