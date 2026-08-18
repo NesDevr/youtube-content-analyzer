@@ -200,7 +200,7 @@ export const VideoCard = React.memo(function VideoCard({
                 )}
                 <DropdownMenuItem
                   onClick={() =>
-                    window.open(`/outlier-lab?v=${video.id}`, "_blank")
+                    window.open(`/opportunity-lab?v=${video.id}`, "_blank")
                   }
                 >
                   <FlaskConical className="mr-2 h-4 w-4" />

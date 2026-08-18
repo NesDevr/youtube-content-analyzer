@@ -280,6 +280,237 @@ export function computeRecentMedianOutlier(
   };
 }
 
+// ── Measured growth between snapshots ──────────────────
+
+export const MEASURED_VELOCITY_METRIC = "measured_view_velocity";
+export const MEASURED_VELOCITY_VERSION = "measured-velocity-v1";
+
+/**
+ * A daily reading pairs the newest snapshot with an earlier one taken roughly a
+ * day before. Collection never lands exactly on 24 hours, so a window is
+ * accepted and the *actual* interval is always reported alongside the rate.
+ */
+export const DAILY_WINDOW_MIN_HOURS = 18;
+export const DAILY_WINDOW_MAX_HOURS = 36;
+/** A multi-day reading needs at least this much observed history. */
+export const MULTI_DAY_MIN_HOURS = 72;
+
+export interface SnapshotPoint {
+  /** `null` when that collection could not read a view count. */
+  views: number | null;
+  collectedAt: Date;
+}
+
+export interface VelocityReading {
+  fromViews: number;
+  toViews: number;
+  /** Signed: YouTube revises counts downward, and that is reported as measured. */
+  viewChange: number;
+  /** The exact observed interval, never rounded up to a whole day. */
+  intervalHours: number;
+  /** `viewChange` scaled to 24 h. Only meaningful with `intervalHours`. */
+  viewsPer24Hours: number;
+  from: string;
+  to: string;
+}
+
+export interface VelocityReport {
+  metric: typeof MEASURED_VELOCITY_METRIC;
+  formulaVersion: typeof MEASURED_VELOCITY_VERSION;
+  /** Snapshots that carried a view count. */
+  usableSnapshots: number;
+  daily: VelocityReading | null;
+  /** Why `daily` is null. Empty when a reading was produced. */
+  dailyUnavailable: string;
+  multiDay: VelocityReading | null;
+  multiDayUnavailable: string;
+}
+
+function reading(earlier: { views: number; collectedAt: Date }, latest: { views: number; collectedAt: Date }): VelocityReading {
+  const intervalMs = latest.collectedAt.getTime() - earlier.collectedAt.getTime();
+  const viewChange = latest.views - earlier.views;
+  return {
+    fromViews: earlier.views,
+    toViews: latest.views,
+    viewChange,
+    intervalHours: Math.round((intervalMs / 3_600_000) * 100) / 100,
+    viewsPer24Hours: Math.round((viewChange / intervalMs) * DAY_MS * 100) / 100,
+    from: earlier.collectedAt.toISOString(),
+    to: latest.collectedAt.toISOString(),
+  };
+}
+
+/**
+ * Growth measured between real observations. Nothing here divides lifetime
+ * views by video age: a video that has been observed only once has no velocity,
+ * and says so.
+ */
+export function measureVelocity(snapshots: SnapshotPoint[]): VelocityReport {
+  const usable = snapshots
+    .filter((point): point is { views: number; collectedAt: Date } => point.views !== null)
+    .sort((a, b) => a.collectedAt.getTime() - b.collectedAt.getTime());
+
+  const base = {
+    metric: MEASURED_VELOCITY_METRIC,
+    formulaVersion: MEASURED_VELOCITY_VERSION,
+    usableSnapshots: usable.length,
+  } as const;
+
+  if (usable.length < 2) {
+    const reason = `Only ${usable.length} observation(s) with a public view count; two are required to measure any change.`;
+    return { ...base, daily: null, dailyUnavailable: reason, multiDay: null, multiDayUnavailable: reason };
+  }
+
+  const latest = usable[usable.length - 1];
+  const earliest = usable[0];
+
+  // Daily: the earlier snapshot closest to 24 h before the latest one, and only
+  // if it actually falls inside the accepted window.
+  const candidates = usable
+    .slice(0, -1)
+    .map((point) => ({
+      point,
+      hours: (latest.collectedAt.getTime() - point.collectedAt.getTime()) / 3_600_000,
+    }))
+    .sort((a, b) => Math.abs(a.hours - 24) - Math.abs(b.hours - 24));
+  const closest = candidates[0];
+  const dailyMatch =
+    closest.hours >= DAILY_WINDOW_MIN_HOURS && closest.hours <= DAILY_WINDOW_MAX_HOURS
+      ? closest
+      : null;
+
+  const totalHours =
+    (latest.collectedAt.getTime() - earliest.collectedAt.getTime()) / 3_600_000;
+
+  return {
+    ...base,
+    daily: dailyMatch ? reading(dailyMatch.point, latest) : null,
+    dailyUnavailable: dailyMatch
+      ? ""
+      : `No earlier observation between ${DAILY_WINDOW_MIN_HOURS} and ${DAILY_WINDOW_MAX_HOURS} hours before the latest one (closest is ${Math.round(closest.hours * 10) / 10} h).`,
+    multiDay: totalHours >= MULTI_DAY_MIN_HOURS ? reading(earliest, latest) : null,
+    multiDayUnavailable:
+      totalHours >= MULTI_DAY_MIN_HOURS
+        ? ""
+        : `Observations span ${Math.round(totalHours * 10) / 10} h; ${MULTI_DAY_MIN_HOURS} h of history are required.`,
+  };
+}
+
+// ── Age-normalized comparison ──────────────────────────
+
+export const AGE_NORMALIZED_METRIC = "age_normalized_view_ratio";
+export const AGE_NORMALIZED_VERSION = "age-normalized-v1";
+
+/** A comparable observation may be this far from the target's age, either way. */
+export const AGE_TOLERANCE_FRACTION = 0.25;
+/** Below this many comparable observations no ratio is reported. */
+export const AGE_MIN_COMPARABLES = 5;
+
+/** One stored reading of some video's view count at a known age. */
+export interface AgeObservation {
+  videoId: string;
+  ageHours: number;
+  views: number;
+}
+
+export interface AgeNormalizedResult {
+  metric: typeof AGE_NORMALIZED_METRIC;
+  formulaVersion: typeof AGE_NORMALIZED_VERSION;
+  status: "ok" | "insufficient_comparables";
+  targetAgeHours: number;
+  targetViews: number;
+  medianViewsAtComparableAge: number | null;
+  ratio: number | null;
+  sampleSize: number;
+  minSampleSize: number;
+  toleranceFraction: number;
+  comparables: AgeObservation[];
+  explanation: string;
+}
+
+/**
+ * Compares a video against what *other* videos had actually accumulated at the
+ * same age. Unlike a views-per-day estimate this needs real history, so it is
+ * only reported once enough comparable observations have been collected.
+ *
+ * One observation per comparable video — the one closest to the target's age —
+ * so a heavily sampled video cannot dominate the median.
+ */
+export function ageNormalizedComparison(
+  target: { videoId: string; ageHours: number; views: number },
+  observations: AgeObservation[],
+  options: { toleranceFraction?: number; minSample?: number } = {}
+): AgeNormalizedResult {
+  const tolerance = options.toleranceFraction ?? AGE_TOLERANCE_FRACTION;
+  const minSample = options.minSample ?? AGE_MIN_COMPARABLES;
+  const spread = target.ageHours * tolerance;
+
+  const closestPerVideo = new Map<string, AgeObservation>();
+  for (const observation of observations) {
+    if (observation.videoId === target.videoId) continue;
+    if (Math.abs(observation.ageHours - target.ageHours) > spread) continue;
+    const held = closestPerVideo.get(observation.videoId);
+    if (
+      !held ||
+      Math.abs(observation.ageHours - target.ageHours) <
+        Math.abs(held.ageHours - target.ageHours)
+    ) {
+      closestPerVideo.set(observation.videoId, observation);
+    }
+  }
+
+  const comparables = [...closestPerVideo.values()].sort(
+    (a, b) => a.ageHours - b.ageHours
+  );
+  const base = {
+    metric: AGE_NORMALIZED_METRIC,
+    formulaVersion: AGE_NORMALIZED_VERSION,
+    targetAgeHours: Math.round(target.ageHours * 10) / 10,
+    targetViews: target.views,
+    sampleSize: comparables.length,
+    minSampleSize: minSample,
+    toleranceFraction: tolerance,
+    comparables,
+  } as const;
+
+  if (comparables.length < minSample) {
+    return {
+      ...base,
+      status: "insufficient_comparables",
+      medianViewsAtComparableAge: null,
+      ratio: null,
+      explanation:
+        `Only ${comparables.length} other video(s) have a stored observation within ` +
+        `±${Math.round(tolerance * 100)}% of ${base.targetAgeHours} h of age (${minSample} required), ` +
+        "so no age-normalized comparison was calculated.",
+    };
+  }
+
+  const medianViews = median(comparables.map((c) => c.views));
+  if (medianViews === 0) {
+    return {
+      ...base,
+      status: "insufficient_comparables",
+      medianViewsAtComparableAge: 0,
+      ratio: null,
+      explanation:
+        `The ${comparables.length} comparable observations median 0 views at this age, ` +
+        "so a ratio would be undefined.",
+    };
+  }
+
+  return {
+    ...base,
+    status: "ok",
+    medianViewsAtComparableAge: medianViews,
+    ratio: Math.round((target.views / medianViews) * 100) / 100,
+    explanation:
+      `${target.views.toLocaleString("en-US")} views at ${base.targetAgeHours} h old ÷ ` +
+      `${medianViews.toLocaleString("en-US")} median views of ${comparables.length} other ` +
+      `video(s) observed at a comparable age = ${Math.round((target.views / medianViews) * 100) / 100}×.`,
+  };
+}
+
 /**
  * The old score, retained only for reading historical values. Returns `null`
  * rather than 0 when the channel has no usable average, so callers cannot mistake

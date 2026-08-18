@@ -20,5 +20,8 @@ export default defineConfig({
     // The workspace isolation tests share one SQLite file, so test files must
     // not run in parallel with each other.
     fileParallelism: false,
+    // Every case here writes to that SQLite file, which is slow enough on
+    // Windows that the 5 s default trips on fixture setup rather than on a bug.
+    testTimeout: 30_000,
   },
 });

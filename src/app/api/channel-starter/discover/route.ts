@@ -110,8 +110,9 @@ async function validateNiche(
     if (!channel) continue;
 
     const ratio = legacyLifetimeAverageRatio(video.views, channel.averageViews);
-    // A channel with no usable lifetime average cannot contribute a ratio.
-    if (ratio === null) continue;
+    // A channel with no usable lifetime average cannot contribute a ratio, and
+    // a hidden subscriber count is not counted as 0 subscribers.
+    if (ratio === null || channel.subscribers === null) continue;
 
     channelSubs.push(channel.subscribers);
     outlierRatios.push(ratio);

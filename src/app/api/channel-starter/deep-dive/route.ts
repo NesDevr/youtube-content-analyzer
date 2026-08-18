@@ -51,7 +51,8 @@ export async function POST(req: NextRequest) {
         const channel = channelStats.get(v.channelId);
         if (!channel) return null;
         const ratio = legacyLifetimeAverageRatio(v.views, channel.averageViews);
-        if (ratio === null) return null;
+        // A hidden subscriber count is not sent to the model as 0 either.
+        if (ratio === null || channel.subscribers === null) return null;
         return {
           title: v.title,
           channelName: v.channelName,
@@ -69,13 +70,14 @@ export async function POST(req: NextRequest) {
       { name: string; subscribers: number; avgViews: number }
     >();
     for (const [id, stats] of channelStats) {
-      if (!channelMap.has(id)) {
-        channelMap.set(id, {
-          name: stats.name,
-          subscribers: stats.subscribers,
-          avgViews: stats.averageViews,
-        });
+      if (channelMap.has(id) || stats.subscribers === null || stats.averageViews === null) {
+        continue;
       }
+      channelMap.set(id, {
+        name: stats.name,
+        subscribers: stats.subscribers,
+        avgViews: stats.averageViews,
+      });
     }
     const channelData = [...channelMap.values()].sort(
       (a, b) => b.subscribers - a.subscribers

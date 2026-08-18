@@ -460,8 +460,8 @@ export default function OutlierFinderPage() {
         <p className="text-muted-foreground mt-1">
           Keyword discovery ranked by the legacy lifetime-average score. That
           score mixes Shorts, long-form and livestreams — use{" "}
-          <Link href="/outlier-lab" className="text-primary hover:underline">
-            Outlier Lab
+          <Link href="/references" className="text-primary hover:underline">
+            Find references
           </Link>{" "}
           to get a video&apos;s real recent-median baseline.
         </p>

@@ -16,6 +16,21 @@ const observationSchema = z.object({
   notes: z.string().max(4000).optional(),
 });
 
+/** Observations already recorded in this workspace, newest first. */
+export async function GET(req: NextRequest) {
+  const params = req.nextUrl.searchParams;
+  const workspace = await resolveWorkspaceId(params.get("workspaceId"));
+  if (!workspace.ok) return NextResponse.json({ error: workspace.error }, { status: workspace.status });
+
+  const entityId = params.get("entityId");
+  const observations = await prisma.manualObservation.findMany({
+    where: { workspaceId: workspace.workspaceId, ...(entityId ? { entityId } : {}) },
+    orderBy: { createdAt: "desc" },
+    take: 25,
+  });
+  return NextResponse.json({ observations });
+}
+
 export async function POST(req: NextRequest) {
   const parsed = parseBody(observationSchema, await req.json());
   if (!parsed.success) return NextResponse.json({ error: parsed.error }, { status: 400 });

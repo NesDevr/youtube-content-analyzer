@@ -17,7 +17,14 @@ import {
 } from "@/lib/metrics/outlier";
 import { outlierAnalyzeSchema, parseBody } from "@/lib/validation";
 import { prisma } from "@/lib/prisma";
-import { reserveManualQuota, settleManualQuota } from "@/lib/collection";
+import {
+  ANALYSIS_MAX_COST,
+  rankSiblings,
+  recordVideoSnapshots,
+  reserveManualQuota,
+  settleManualQuota,
+  videoGrowth,
+} from "@/lib/collection";
 
 const DAY_MS = 24 * 60 * 60 * 1000;
 
@@ -61,7 +68,7 @@ export async function POST(req: NextRequest) {
     // 1 videos.list + 1 channels.list + up to 4 playlistItems.list + up to 4
     // videos.list. This is a manual investigation, so it may use the reserved
     // quota but cannot exceed the full daily budget.
-    const quotaEvent = await reserveManualQuota("outlier analysis", 10, videoId);
+    const quotaEvent = await reserveManualQuota("outlier analysis", ANALYSIS_MAX_COST, videoId);
     quotaEventId = quotaEvent.id;
 
     const target = await getUploadVideo(videoId);
@@ -90,7 +97,26 @@ export async function POST(req: NextRequest) {
     );
     const { videos: uploads, missingIds } = await getUploadVideos(uploadIds);
 
+    // Every upload read here is a real observation, so it is stored like any
+    // other collection. That is what lets a second analysis of the same video
+    // report measured growth instead of dividing lifetime views by age.
+    const collectedAt = new Date();
+    await recordVideoSnapshots(
+      [
+        {
+          channelId: target.channelId,
+          videos: uploads.map((upload) => ({
+            id: upload.id,
+            views: upload.views,
+            publishedAt: upload.publishedAt,
+          })),
+        },
+      ],
+      collectedAt
+    );
+
     const recentMedian = computeRecentMedianOutlier(target.video, uploads);
+    const growth = await videoGrowth(target.video.id);
 
     // The scan only reaches back MAX_UPLOADS_SCANNED uploads. If the baseline
     // window extends past the oldest upload we looked at, say so instead of
@@ -140,6 +166,13 @@ export async function POST(req: NextRequest) {
           2 + Math.ceil(uploadIds.length / 50) * 2,
       },
       recentMedian,
+      /**
+       * Measured from stored observations of this video, including the one just
+       * written. A first analysis therefore reports why it has no rate yet.
+       */
+      growth,
+      /** Other uploads on the same channel, scored by the same rules. */
+      ...rankSiblings(uploads, collectedAt, target.video.id),
       legacy: {
         metric: LEGACY_LIFETIME_AVERAGE_METRIC,
         formulaVersion: LEGACY_LIFETIME_AVERAGE_VERSION,

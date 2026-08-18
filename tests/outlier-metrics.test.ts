@@ -2,14 +2,15 @@ import { describe, expect, it } from "vitest";
 import {
   BASELINE_MIN_SAMPLE,
   RECENT_MEDIAN_FORMULA_VERSION,
+  ageNormalizedComparison,
   classifyFormat,
   computeRecentMedianOutlier,
   legacyLifetimeAverageRatio,
+  measureVelocity,
   median,
   type UploadVideo,
 } from "@/lib/metrics/outlier";
 import { parseVideoId } from "@/lib/youtube";
-import { velocityFromSnapshots } from "@/lib/collection";
 
 const TARGET_DATE = new Date("2026-06-01T00:00:00Z");
 
@@ -343,32 +344,124 @@ describe("parseVideoId", () => {
   });
 });
 
-describe("velocityFromSnapshots", () => {
-  it("uses the exact observed interval instead of lifetime views divided by age", () => {
-    const result = velocityFromSnapshots([
-      { views: 1_000, collectedAt: new Date("2026-06-01T00:00:00Z") },
-      { views: 1_600, collectedAt: new Date("2026-06-02T12:00:00Z") },
-    ]);
-    expect(result).toMatchObject({
-      viewChange: 600,
-      intervalHours: 36,
-      viewsPer24Hours: 400,
+/** Snapshot `hours` after 2026-06-01T00:00Z. */
+function at(hours: number, views: number | null) {
+  return { views, collectedAt: new Date(Date.parse("2026-06-01T00:00:00Z") + hours * 3_600_000) };
+}
+
+describe("measureVelocity", () => {
+  it("measures over the exact observed interval, not lifetime views divided by age", () => {
+    const result = measureVelocity([at(0, 1_000), at(26, 1_650)]);
+    expect(result.daily).toMatchObject({
+      viewChange: 650,
+      intervalHours: 26,
+      viewsPer24Hours: 600,
+      from: "2026-06-01T00:00:00.000Z",
+      to: "2026-06-02T02:00:00.000Z",
     });
   });
 
-  it("returns unavailable when the snapshot history cannot support a daily measurement", () => {
-    expect(velocityFromSnapshots([])).toBeNull();
-    expect(
-      velocityFromSnapshots([
-        { views: 1_000, collectedAt: new Date("2026-06-01T00:00:00Z") },
-        { views: 1_050, collectedAt: new Date("2026-06-01T12:00:00Z") },
-      ])
-    ).toBeNull();
-    expect(
-      velocityFromSnapshots([
-        { views: null, collectedAt: new Date("2026-06-01T00:00:00Z") },
-        { views: 1_050, collectedAt: new Date("2026-06-02T00:00:00Z") },
-      ])
-    ).toBeNull();
+  it("pairs the latest observation with the one nearest 24 hours before it", () => {
+    // 96 h of history: the daily reading must use the 22 h-old snapshot, and the
+    // multi-day reading the whole span — the two are different measurements.
+    const result = measureVelocity([at(0, 1_000), at(48, 4_000), at(74, 5_000), at(96, 5_400)]);
+    expect(result.daily).toMatchObject({ intervalHours: 22, viewChange: 400 });
+    expect(result.multiDay).toMatchObject({ intervalHours: 96, viewChange: 4_400 });
+  });
+
+  it("reports irregular collection as unavailable rather than stretching it to a day", () => {
+    const tooClose = measureVelocity([at(0, 1_000), at(6, 1_100)]);
+    expect(tooClose.daily).toBeNull();
+    expect(tooClose.dailyUnavailable).toMatch(/closest is 6 h/);
+    expect(tooClose.multiDay).toBeNull();
+    expect(tooClose.multiDayUnavailable).toMatch(/span 6 h/);
+
+    const tooFar = measureVelocity([at(0, 1_000), at(120, 9_000)]);
+    expect(tooFar.daily).toBeNull();
+    expect(tooFar.dailyUnavailable).toMatch(/closest is 120 h/);
+    // A multi-day reading is still available over that same history.
+    expect(tooFar.multiDay).toMatchObject({ intervalHours: 120 });
+  });
+
+  it("needs two observations that carry a view count", () => {
+    for (const points of [[], [at(0, 1_000)], [at(0, null), at(24, 1_500)]]) {
+      const result = measureVelocity(points);
+      expect(result.daily).toBeNull();
+      expect(result.multiDay).toBeNull();
+      expect(result.dailyUnavailable).toMatch(/two are required/);
+    }
+  });
+
+  it("reports a downward revision as measured rather than hiding it", () => {
+    const result = measureVelocity([at(0, 5_000), at(24, 4_700)]);
+    expect(result.daily).toMatchObject({ viewChange: -300, viewsPer24Hours: -300 });
+  });
+
+  it("ignores the order snapshots arrive in", () => {
+    const forwards = measureVelocity([at(0, 1_000), at(24, 2_000)]);
+    const backwards = measureVelocity([at(24, 2_000), at(0, 1_000)]);
+    expect(backwards).toEqual(forwards);
+  });
+});
+
+describe("ageNormalizedComparison", () => {
+  /** One observation per video, all at roughly the same age. */
+  function observations(count: number, views: number | ((i: number) => number), ageHours = 100) {
+    return Array.from({ length: count }, (_, i) => ({
+      videoId: `other-${i}`,
+      ageHours,
+      views: typeof views === "function" ? views(i) : views,
+    }));
+  }
+
+  it("compares against what other videos had at the same age", () => {
+    const result = ageNormalizedComparison(
+      { videoId: "target", ageHours: 100, views: 9_000 },
+      observations(5, (i) => [1_000, 2_000, 3_000, 4_000, 5_000][i])
+    );
+    expect(result.status).toBe("ok");
+    expect(result.medianViewsAtComparableAge).toBe(3_000);
+    expect(result.ratio).toBe(3);
+    expect(result.explanation).toContain("100 h old");
+  });
+
+  it("stays unavailable until enough comparable observations exist", () => {
+    const result = ageNormalizedComparison(
+      { videoId: "target", ageHours: 100, views: 9_000 },
+      observations(4, 1_000)
+    );
+    expect(result.status).toBe("insufficient_comparables");
+    expect(result.ratio).toBeNull();
+    expect(result.explanation).toMatch(/Only 4 other video/);
+  });
+
+  it("excludes observations outside the age tolerance and the target itself", () => {
+    const result = ageNormalizedComparison(
+      { videoId: "target", ageHours: 100, views: 9_000 },
+      [
+        ...observations(5, 1_000, 100),
+        ...observations(3, 500_000, 900).map((o) => ({ ...o, videoId: `${o.videoId}-old` })),
+        { videoId: "target", ageHours: 100, views: 9_000 },
+      ]
+    );
+    expect(result.sampleSize).toBe(5);
+    expect(result.medianViewsAtComparableAge).toBe(1_000);
+    expect(result.comparables.every((c) => c.videoId !== "target")).toBe(true);
+  });
+
+  it("counts a heavily sampled video once, at its closest observation", () => {
+    const result = ageNormalizedComparison(
+      { videoId: "target", ageHours: 100, views: 1_000 },
+      [
+        { videoId: "noisy", ageHours: 90, views: 10 },
+        { videoId: "noisy", ageHours: 99, views: 40 },
+        { videoId: "noisy", ageHours: 110, views: 80 },
+        ...observations(4, 1_000),
+      ]
+    );
+    expect(result.sampleSize).toBe(5);
+    expect(result.comparables.filter((c) => c.videoId === "noisy")).toEqual([
+      { videoId: "noisy", ageHours: 99, views: 40 },
+    ]);
   });
 });

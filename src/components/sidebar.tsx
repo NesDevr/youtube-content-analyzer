@@ -3,18 +3,21 @@
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import {
-  LayoutDashboard,
+  Clapperboard,
   Play,
-  FlaskConical,
+  Search,
+  Library,
   Lightbulb,
+  Settings2,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { WorkspaceSwitcher } from "@/components/workspace-switcher";
 
 const navItems = [
-  { href: "/", label: "Overview", icon: LayoutDashboard },
-  { href: "/opportunity-lab", label: "Opportunity Lab", icon: FlaskConical },
+  { href: "/", label: "Current video", icon: Clapperboard },
   { href: "/ideas", label: "Ideas", icon: Lightbulb },
+  { href: "/references", label: "Find references", icon: Search },
+  { href: "/library", label: "Library", icon: Library },
 ];
 
 export function Sidebar() {
@@ -70,8 +73,20 @@ export function Sidebar() {
         })}
       </nav>
 
-      <div className="p-4 border-t border-sidebar-border">
-        <div className="flex items-center gap-2 text-[11px] text-muted-foreground/60">
+      <div className="p-3 border-t border-sidebar-border space-y-2">
+        <Link
+          href="/advanced"
+          className={cn(
+            "flex items-center gap-3 px-3 py-2 rounded-lg text-sm transition-colors",
+            pathname.startsWith("/advanced")
+              ? "bg-accent/60 text-foreground"
+              : "text-muted-foreground hover:text-foreground hover:bg-accent/40"
+          )}
+        >
+          <Settings2 className="h-4 w-4" />
+          Advanced
+        </Link>
+        <div className="flex items-center gap-2 px-3 text-[11px] text-muted-foreground/60">
           <div className="h-1.5 w-1.5 rounded-full bg-green-500" />
           Personal Research Tool
         </div>

@@ -77,8 +77,131 @@ model ChannelWorkspace {
   collectionJobs  CollectionJob[]
   discoverySearches DiscoverySearch[]
   manualObservations ManualObservation[]
+  referenceCollections ReferenceCollection[]
+  researchJobs       ResearchJob[]
+  ideas              Idea[]
+  researchProfile    ChannelResearchProfile?
+  queryPlans         QueryPlan[]
 
   @@index([status])
+}
+
+/// Creator-owned context used to plan searches. The core workspace fields
+/// remain the canonical channel identity; this only holds additive notes.
+model ChannelResearchProfile {
+  id                Int      @id @default(autoincrement())
+  workspaceId       Int      @unique
+  planningNotes     String   @default("")
+  updatedAt         DateTime @updatedAt
+  workspace         ChannelWorkspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+}
+
+/// A reproducible planning artifact. Its rows are intentionally separate from
+/// collection jobs, because approving a plan must never spend YouTube quota.
+model QueryPlan {
+  id            Int      @id @default(autoincrement())
+  workspaceId   Int
+  inputs        String
+  provider      String   @default("none")
+  model         String   @default("")
+  promptVersion String   @default("query-plan-v1")
+  manualPrompt  String   @default("")
+  createdAt     DateTime @default(now())
+  workspace     ChannelWorkspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  queries       QueryPlanQuery[]
+
+  @@index([workspaceId, createdAt])
+}
+
+model QueryPlanQuery {
+  id               Int      @id @default(autoincrement())
+  queryPlanId      Int
+  position         Int
+  query            String
+  purpose          String
+  mechanism        String   @default("")
+  expectedEvidence String   @default("")
+  sourceContext    String   @default("")
+  language         String   @default("")
+  region           String   @default("")
+  generationReason String   @default("")
+  selected         Boolean  @default(true)
+  queryPlan        QueryPlan @relation(fields: [queryPlanId], references: [id], onDelete: Cascade)
+
+  @@index([queryPlanId, position])
+}
+
+
+/// A user-requested research task. It is deliberately queued for Codex to
+/// claim through the local CLI; the browser never claims to invoke Codex.
+model ResearchJob {
+  id          Int      @id @default(autoincrement())
+  workspaceId Int
+  schemaVersion String  @default("research-job-v1")
+  status      String   @default("queued") // queued | claimed | researching | completed | failed
+  intent      String
+  input       String
+  result      String?
+  quotaBudget Int      @default(0)
+  quotaUsed   Int      @default(0)
+  error       String?
+  claimedAt   DateTime?
+  completedAt DateTime?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+  workspace   ChannelWorkspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  evidence    ResearchJobEvidence[]
+  ideas       Idea[]
+
+  @@index([workspaceId, status, createdAt])
+}
+
+/// Sourced evidence supplied while a research job is worked. Source type makes
+/// primary reporting distinguishable from commentary instead of trusting prose.
+model ResearchJobEvidence {
+  id          Int      @id @default(autoincrement())
+  researchJobId Int
+  url         String
+  sourceType  String   // primary | commentary
+  title       String   @default("")
+  claim       String
+  note        String   @default("")
+  createdAt   DateTime @default(now())
+  researchJob ResearchJob @relation(fields: [researchJobId], references: [id], onDelete: Cascade)
+
+  @@index([researchJobId])
+}
+
+/// An editable original concept. Its job link explains where it came from;
+/// evidenceLinks contains the specific saved videos, collections, or sources.
+model Idea {
+  id               Int      @id @default(autoincrement())
+  workspaceId      Int
+  researchJobId    Int?
+  title            String
+  audiencePromise  String   @default("")
+  angle            String   @default("")
+  evidenceLinks    String   @default("[]")
+  risks            String   @default("")
+  freshness        String   @default("")
+  productionRequirements String @default("")
+  confidence       String   @default("unknown") // low | medium | high | unknown
+  status           String   @default("inbox") // inbox | shortlisted | researching | selected | rejected | produced | published
+  rejectionReason  String   @default("")
+  selectedPackage  String   @default("")
+  rejectedPackages String   @default("[]")
+  rank             Int      @default(0)
+  researchBrief    String   @default("")
+  /// Production notes per stage of the current-video workflow, as
+  /// {"<stage>":{"notes":"…","done":true}}. Only the stages the user has
+  /// touched are present; a missing stage means nothing has been written yet.
+  production       String   @default("{}")
+  createdAt        DateTime @default(now())
+  updatedAt        DateTime @updatedAt
+  workspace        ChannelWorkspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  researchJob      ResearchJob? @relation(fields: [researchJobId], references: [id], onDelete: SetNull)
+
+  @@index([workspaceId, status, updatedAt])
 }
 
 /// Qualitative evidence deliberately written by the creator or Codex after a
@@ -108,6 +231,9 @@ model QuotaPolicy {
   dailyBudget        Int      @default(1000)
   manualReserve      Int      @default(200)
   searchCacheHours   Int      @default(24)
+  /// Snapshots older than this may be thinned to one per video per day.
+  /// A video's first and last observation are never removed.
+  snapshotThinAfterDays Int   @default(90)
   updatedAt          DateTime @updatedAt
   quotaEvents        QuotaEvent[]
 }
@@ -185,6 +311,9 @@ model VideoSnapshot {
   views       Int?
   likes       Int?
   comments    Int?
+  /// Copied from the upload at collection time so a snapshot's age can be
+  /// calculated later without spending another videos.list call.
+  publishedAt DateTime?
   collectedAt DateTime @default(now())
 
   @@index([videoId, collectedAt])
@@ -228,6 +357,50 @@ model OutlierAnalysis {
 
   @@index([workspaceId, collectedAt])
   @@index([videoId])
+}
+
+/// A deliberate set of reference videos gathered across several searches for one
+/// research question. Separate from `Folder`, which holds saved `Video` rows for
+/// idea generation: a reference is evidence about packaging, kept with the scope
+/// it was found under so a Spanish result is never re-read as an English one.
+model ReferenceCollection {
+  id          Int      @id @default(autoincrement())
+  workspaceId Int
+  name        String
+  question    String   @default("")
+  createdAt   DateTime @default(now())
+  workspace   ChannelWorkspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  items       ReferenceItem[]
+
+  @@unique([workspaceId, name])
+}
+
+model ReferenceItem {
+  id           Int      @id @default(autoincrement())
+  collectionId Int
+  videoId      String
+  title        String
+  channelId    String
+  channelName  String
+  thumbnailUrl String
+  /// `null` when YouTube withheld the view count at collection time.
+  views        Int?
+  publishedAt  DateTime
+  format       String
+  /// The scope the result was found under, kept per item because one job may
+  /// run Spanish and English queries across different niches.
+  language     String   @default("")
+  region       String   @default("")
+  sourceQuery  String   @default("")
+  /// Why this reference was kept: topic | title | thumbnail | hook | structure |
+  /// production. The same video may be kept for more than one reason.
+  use          String
+  note         String   @default("")
+  addedAt      DateTime @default(now())
+  collection   ReferenceCollection @relation(fields: [collectionId], references: [id], onDelete: Cascade)
+
+  @@unique([collectionId, videoId, use])
+  @@index([collectionId])
 }
 
 model Folder {

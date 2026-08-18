@@ -4,6 +4,7 @@ import {
   classifyFormat,
   legacyLifetimeAverageRatio,
   type UploadVideo,
+  type VideoFormat,
 } from "./metrics/outlier";
 
 export type { VideoResult, SearchFilters };
@@ -179,67 +180,104 @@ export async function searchVideos(
   return allIds;
 }
 
+/** The `videos.list` fields this codebase reads, whatever `part` was requested. */
+interface VideoListItem {
+  id: string;
+  snippet: {
+    title: string;
+    channelId: string;
+    channelTitle: string;
+    publishedAt: string;
+    description?: string;
+    defaultLanguage?: string;
+    defaultAudioLanguage?: string;
+    thumbnails?: Record<string, { url?: string } | undefined>;
+    liveBroadcastContent?: string;
+  };
+  statistics?: { viewCount?: string; likeCount?: string; commentCount?: string };
+  contentDetails?: { duration?: string };
+  liveStreamingDetails?: unknown;
+}
+
+/**
+ * Batched `videos.list`, 50 ids and 1 quota unit per request. The single place
+ * that talks to that endpoint, so every caller pages and fails the same way.
+ */
+async function fetchVideoItems(
+  videoIds: string[],
+  part: string
+): Promise<VideoListItem[]> {
+  const items: VideoListItem[] = [];
+  for (let i = 0; i < videoIds.length; i += 50) {
+    const params = new URLSearchParams({
+      part,
+      id: videoIds.slice(i, i + 50).join(","),
+      key: API_KEY,
+    });
+    const res = await fetch(`${BASE_URL}/videos?${params}`);
+    if (!res.ok) {
+      throw new Error(`YouTube video lookup failed: ${await res.text()}`);
+    }
+    const data = await res.json();
+    items.push(...((data.items || []) as VideoListItem[]));
+  }
+  return items;
+}
+
+function bestThumbnail(item: VideoListItem): string {
+  const thumbnails = item.snippet.thumbnails;
+  return (
+    thumbnails?.high?.url ||
+    thumbnails?.medium?.url ||
+    thumbnails?.default?.url ||
+    ""
+  );
+}
+
 export async function getVideoDetails(videoIds: string[]): Promise<VideoResult[]> {
   if (videoIds.length === 0) return [];
 
-  const results: VideoResult[] = [];
-  for (let i = 0; i < videoIds.length; i += 50) {
-    const batch = videoIds.slice(i, i + 50);
-    const params = new URLSearchParams({
-      part: "snippet,statistics,contentDetails",
-      id: batch.join(","),
-      key: API_KEY,
-    });
+  const items = await fetchVideoItems(videoIds, "snippet,statistics,contentDetails");
+  return items.map((item) => {
+    const hoursAge =
+      (Date.now() - new Date(item.snippet.publishedAt).getTime()) / (1000 * 60 * 60);
+    const views = parseInt(item.statistics?.viewCount || "0");
+    return {
+      id: item.id,
+      title: item.snippet.title,
+      channelId: item.snippet.channelId,
+      channelName: item.snippet.channelTitle,
+      views,
+      likes: parseInt(item.statistics?.likeCount || "0"),
+      comments: parseInt(item.statistics?.commentCount || "0"),
+      duration: item.contentDetails?.duration || "PT0S",
+      publishedAt: item.snippet.publishedAt,
+      defaultLanguage: item.snippet.defaultLanguage || null,
+      defaultAudioLanguage: item.snippet.defaultAudioLanguage || null,
+      thumbnailUrl: bestThumbnail(item),
+      description: (item.snippet.description || "").slice(0, 500),
+      outlierScore: null,
+      viewsPerHour: Math.round(views / Math.max(hoursAge, 1)),
+      channelSubscribers: null,
+      channelAverageViews: null,
+      engagementRate: null,
+      viewsToSubsRatio: null,
+    };
+  });
+}
 
-    const res = await fetch(`${BASE_URL}/videos?${params}`);
-    if (!res.ok) {
-      const err = await res.text();
-      throw new Error(`YouTube video details failed: ${err}`);
-    }
-    const data = await res.json();
-
-    for (const item of data.items || []) {
-      const hoursAge =
-        (Date.now() - new Date(item.snippet.publishedAt).getTime()) / (1000 * 60 * 60);
-      const views = parseInt(item.statistics.viewCount || "0");
-      results.push({
-        id: item.id,
-        title: item.snippet.title,
-        channelId: item.snippet.channelId,
-        channelName: item.snippet.channelTitle,
-        views,
-        likes: parseInt(item.statistics.likeCount || "0"),
-        comments: parseInt(item.statistics.commentCount || "0"),
-        duration: item.contentDetails.duration,
-        publishedAt: item.snippet.publishedAt,
-        defaultLanguage: item.snippet.defaultLanguage || null,
-        defaultAudioLanguage: item.snippet.defaultAudioLanguage || null,
-        thumbnailUrl:
-          item.snippet.thumbnails?.high?.url ||
-          item.snippet.thumbnails?.medium?.url ||
-          item.snippet.thumbnails?.default?.url ||
-          "",
-        description: (item.snippet.description || "").slice(0, 500),
-        outlierScore: null,
-        viewsPerHour: Math.round(views / Math.max(hoursAge, 1)),
-        channelSubscribers: null,
-        channelAverageViews: null,
-        engagementRate: null,
-        viewsToSubsRatio: null,
-      });
-    }
-  }
-
-  return results;
+export interface ChannelStats {
+  /** `null` when the channel hides its subscriber count. Never 0 as a stand-in. */
+  subscribers: number | null;
+  /** Lifetime views ÷ video count. `null` when either figure is unavailable. */
+  averageViews: number | null;
+  name: string;
 }
 
 export async function getChannelStats(
   channelIds: string[]
-): Promise<Map<string, { subscribers: number; averageViews: number; name: string }>> {
-  const statsMap = new Map<
-    string,
-    { subscribers: number; averageViews: number; name: string }
-  >();
+): Promise<Map<string, ChannelStats>> {
+  const statsMap = new Map<string, ChannelStats>();
   if (channelIds.length === 0) return statsMap;
 
   const uniqueIds = [...new Set(channelIds)];
@@ -261,11 +299,20 @@ export async function getChannelStats(
     const data = await res.json();
 
     for (const item of data.items || []) {
-      const subscribers = parseInt(item.statistics.subscriberCount || "0");
-      const totalViews = parseInt(item.statistics.viewCount || "0");
-      const videoCount = parseInt(item.statistics.videoCount || "1");
-      const averageViews = videoCount > 0 ? totalViews / videoCount : 0;
-      statsMap.set(item.id, { subscribers, averageViews, name: item.snippet.title });
+      const rawSubscribers = item.statistics?.subscriberCount;
+      const rawViews = item.statistics?.viewCount;
+      const videoCount = parseInt(item.statistics?.videoCount ?? "0");
+      statsMap.set(item.id, {
+        subscribers:
+          item.statistics?.hiddenSubscriberCount || rawSubscribers === undefined
+            ? null
+            : parseInt(rawSubscribers),
+        averageViews:
+          rawViews === undefined || videoCount <= 0
+            ? null
+            : parseInt(rawViews) / videoCount,
+        name: item.snippet.title,
+      });
     }
   }
 
@@ -338,7 +385,7 @@ function applyPostFilters(videos: VideoResult[], filters: SearchFilters): VideoR
  */
 function enrichWithChannelStats(
   videos: VideoResult[],
-  channelStats: Map<string, { subscribers: number; averageViews: number; name: string }>
+  channelStats: Map<string, ChannelStats>
 ): VideoResult[] {
   return videos
     .map((video) => {
@@ -346,7 +393,7 @@ function enrichWithChannelStats(
       if (!channel) return null;
 
       const viewsToSubsRatio =
-        channel.subscribers > 0
+        channel.subscribers !== null && channel.subscribers > 0
           ? Math.round((video.views / channel.subscribers) * 100) / 100
           : null;
       const engagementRate =
@@ -364,7 +411,9 @@ function enrichWithChannelStats(
         ),
         channelSubscribers: channel.subscribers,
         channelAverageViews:
-          channel.averageViews > 0 ? Math.round(channel.averageViews) : null,
+          channel.averageViews !== null && channel.averageViews > 0
+            ? Math.round(channel.averageViews)
+            : null,
         engagementRate,
         viewsToSubsRatio,
       };
@@ -521,43 +570,28 @@ export interface UploadCollection {
  * YouTube withholds gets `views: null` rather than 0, so an unknown view count
  * is never mistaken for a real one.
  */
+const UPLOAD_PARTS = "snippet,statistics,contentDetails,liveStreamingDetails";
+
+function toUploadVideo(item: VideoListItem): UploadVideo {
+  const rawViews = item.statistics?.viewCount;
+  return {
+    id: item.id,
+    title: item.snippet.title,
+    publishedAt: new Date(item.snippet.publishedAt),
+    views: rawViews === undefined ? null : parseInt(rawViews),
+    durationSeconds: parseDuration(item.contentDetails?.duration || "PT0S"),
+    liveBroadcastContent: item.snippet.liveBroadcastContent ?? null,
+    hasLiveStreamingDetails: Boolean(item.liveStreamingDetails),
+  };
+}
+
 export async function getUploadVideos(
   videoIds: string[]
 ): Promise<UploadCollection> {
-  const videos: UploadVideo[] = [];
-  const returned = new Set<string>();
-
-  for (let i = 0; i < videoIds.length; i += 50) {
-    const batch = videoIds.slice(i, i + 50);
-    const params = new URLSearchParams({
-      part: "snippet,statistics,contentDetails,liveStreamingDetails",
-      id: batch.join(","),
-      key: API_KEY,
-    });
-
-    const res = await fetch(`${BASE_URL}/videos?${params}`);
-    if (!res.ok) {
-      throw new Error(`YouTube video lookup failed: ${await res.text()}`);
-    }
-    const data = await res.json();
-
-    for (const item of data.items || []) {
-      returned.add(item.id);
-      const rawViews = item.statistics?.viewCount;
-      videos.push({
-        id: item.id,
-        title: item.snippet.title,
-        publishedAt: new Date(item.snippet.publishedAt),
-        views: rawViews === undefined ? null : parseInt(rawViews),
-        durationSeconds: parseDuration(item.contentDetails?.duration || "PT0S"),
-        liveBroadcastContent: item.snippet.liveBroadcastContent ?? null,
-        hasLiveStreamingDetails: Boolean(item.liveStreamingDetails),
-      });
-    }
-  }
-
+  const items = await fetchVideoItems(videoIds, UPLOAD_PARTS);
+  const returned = new Set(items.map((item) => item.id));
   return {
-    videos,
+    videos: items.map(toUploadVideo),
     missingIds: videoIds.filter((id) => !returned.has(id)),
   };
 }
@@ -567,42 +601,130 @@ export async function getUploadVideo(videoId: string): Promise<
   | { video: UploadVideo; channelId: string; channelName: string; thumbnailUrl: string; likes: number | null; comments: number | null }
   | null
 > {
-  const params = new URLSearchParams({
-    part: "snippet,statistics,contentDetails,liveStreamingDetails",
-    id: videoId,
-    key: API_KEY,
-  });
-  const res = await fetch(`${BASE_URL}/videos?${params}`);
-  if (!res.ok) {
-    throw new Error(`YouTube video lookup failed: ${await res.text()}`);
-  }
-  const data = await res.json();
-  const item = data.items?.[0];
+  const [item] = await fetchVideoItems([videoId], UPLOAD_PARTS);
   if (!item) return null;
 
-  const rawViews = item.statistics?.viewCount;
   const rawLikes = item.statistics?.likeCount;
   const rawComments = item.statistics?.commentCount;
 
   return {
-    video: {
-      id: item.id,
-      title: item.snippet.title,
-      publishedAt: new Date(item.snippet.publishedAt),
-      views: rawViews === undefined ? null : parseInt(rawViews),
-      durationSeconds: parseDuration(item.contentDetails?.duration || "PT0S"),
-      liveBroadcastContent: item.snippet.liveBroadcastContent ?? null,
-      hasLiveStreamingDetails: Boolean(item.liveStreamingDetails),
-    },
+    video: toUploadVideo(item),
     channelId: item.snippet.channelId,
     channelName: item.snippet.channelTitle,
-    thumbnailUrl:
-      item.snippet.thumbnails?.high?.url ||
-      item.snippet.thumbnails?.medium?.url ||
-      item.snippet.thumbnails?.default?.url ||
-      "",
+    thumbnailUrl: bestThumbnail(item),
     likes: rawLikes === undefined ? null : parseInt(rawLikes),
     comments: rawComments === undefined ? null : parseInt(rawComments),
+  };
+}
+
+// ── Narrow seed discovery (exactly one search.list) ────
+
+/**
+ * The scope of a discovery search, stored verbatim alongside its results.
+ *
+ * Every field is sent to `search.list` as written — the keyword is never
+ * expanded through autocomplete here, because a cached result has to be
+ * reproducible from the scope that is displayed next to it.
+ */
+export interface DiscoveryScope {
+  query: string;
+  /** `relevanceLanguage`; empty means unspecified. */
+  language: string;
+  /** `regionCode`; empty means unspecified. */
+  region: string;
+  publishedAfter: string;
+  publishedBefore: string;
+  /** YouTube's own duration buckets: short < 4 min, medium 4–20, long > 20. */
+  duration: "any" | "short" | "medium" | "long";
+  maxResults: number;
+}
+
+export interface SeedVideo {
+  id: string;
+  title: string;
+  channelId: string;
+  channelName: string;
+  channelSubscribers: number | null;
+  /** `null` when YouTube withholds the view count. */
+  views: number | null;
+  durationSeconds: number;
+  publishedAt: string;
+  thumbnailUrl: string;
+  format: VideoFormat;
+}
+
+export interface SeedCollection {
+  seeds: SeedVideo[];
+  /** Ids `search.list` returned that `videos.list` did not. */
+  unavailableVideoIds: string[];
+  /** Channels `channels.list` did not return, so their seeds carry no subscriber count. */
+  channelsWithoutStats: string[];
+  quotaUnits: number;
+}
+
+/** Quota cost of one `search.list` request. Every other endpoint used here costs 1. */
+export const SEARCH_LIST_COST = 100;
+
+/**
+ * One page of keyword search, then batched detail lookups. Seeds only —
+ * baselines and growth come from the uploads playlist and stored snapshots,
+ * which cost 1 unit per 50 items instead of 100 per request.
+ */
+export async function collectSeeds(scope: DiscoveryScope): Promise<SeedCollection> {
+  const params = new URLSearchParams({
+    part: "snippet",
+    q: scope.query,
+    type: "video",
+    order: "relevance",
+    maxResults: String(Math.min(50, Math.max(1, scope.maxResults))),
+    key: API_KEY,
+  });
+  if (scope.language) params.set("relevanceLanguage", scope.language);
+  if (scope.region) params.set("regionCode", scope.region);
+  if (scope.publishedAfter) params.set("publishedAfter", scope.publishedAfter);
+  if (scope.publishedBefore) params.set("publishedBefore", scope.publishedBefore);
+  if (scope.duration !== "any") params.set("videoDuration", scope.duration);
+
+  const res = await fetch(`${BASE_URL}/search?${params}`);
+  if (!res.ok) {
+    throw new Error(`YouTube search failed: ${await res.text()}`);
+  }
+  const data = await res.json();
+  const ids: string[] = [];
+  for (const item of data.items || []) {
+    const id = item.id?.videoId;
+    if (id && !ids.includes(id)) ids.push(id);
+  }
+
+  const items = await fetchVideoItems(ids, UPLOAD_PARTS);
+  const channelIds = [...new Set(items.map((item) => item.snippet.channelId))];
+  const channelStats = await getChannelStats(channelIds);
+
+  const seeds: SeedVideo[] = items.map((item) => {
+    const upload = toUploadVideo(item);
+    return {
+      id: upload.id,
+      title: upload.title,
+      channelId: item.snippet.channelId,
+      channelName: item.snippet.channelTitle,
+      channelSubscribers: channelStats.get(item.snippet.channelId)?.subscribers ?? null,
+      views: upload.views,
+      durationSeconds: upload.durationSeconds,
+      publishedAt: upload.publishedAt.toISOString(),
+      thumbnailUrl: bestThumbnail(item),
+      format: classifyFormat(upload),
+    };
+  });
+
+  const returnedIds = new Set(items.map((item) => item.id));
+  return {
+    seeds,
+    unavailableVideoIds: ids.filter((id) => !returnedIds.has(id)),
+    channelsWithoutStats: channelIds.filter((id) => !channelStats.has(id)),
+    quotaUnits:
+      SEARCH_LIST_COST +
+      Math.ceil(ids.length / 50) +
+      Math.ceil(channelIds.length / 50),
   };
 }
 

@@ -1,7 +1,11 @@
-import { execFileSync } from "node:child_process";
-import { mkdirSync, rmSync } from "node:fs";
+import { mkdirSync, readdirSync, readFileSync, rmSync, statSync } from "node:fs";
+import { createRequire } from "node:module";
 import path from "node:path";
-import { TEST_DB_PATH, TEST_DATABASE_URL } from "./db-path";
+import { TEST_DB_PATH } from "./db-path";
+
+const { DatabaseSync } = createRequire(import.meta.url)("node:sqlite") as {
+  DatabaseSync: new (filename: string) => { exec(sql: string): void; close(): void };
+};
 
 /**
  * Builds a throwaway SQLite database from the Prisma schema so the workspace
@@ -12,19 +16,18 @@ export default function setup() {
   rmSync(TEST_DB_PATH, { force: true });
   mkdirSync(path.dirname(TEST_DB_PATH), { recursive: true });
 
-  // Run the Prisma CLI through node directly: spawning `npx.cmd` fails with
-  // EINVAL on Windows unless a shell is used.
-  execFileSync(
-    process.execPath,
-    [
-      path.join(process.cwd(), "node_modules", "prisma", "build", "index.js"),
-      "db",
-      "push",
-      "--skip-generate",
-      "--accept-data-loss",
-    ],
-    { env: { ...process.env, DATABASE_URL: TEST_DATABASE_URL }, stdio: "inherit" }
-  );
+  // Prisma's Windows schema engine intermittently fails before printing an
+  // error while building a fresh SQLite test database. Apply the project's
+  // checked-in migrations directly instead: tests exercise the same schema the
+  // app ships, without depending on that external binary.
+  const database = new DatabaseSync(TEST_DB_PATH);
+  const migrationsPath = path.join(process.cwd(), "prisma", "migrations");
+  for (const name of readdirSync(migrationsPath).filter((name) => statSync(path.join(migrationsPath, name)).isDirectory()).sort()) {
+    const file = path.join(migrationsPath, name, "migration.sql");
+    try { database.exec(readFileSync(file, "utf8")); }
+    catch (error) { throw new Error(`Failed applying ${name}: ${error instanceof Error ? error.message : String(error)}`); }
+  }
+  database.close();
 
   return () => rmSync(TEST_DB_PATH, { force: true });
 }
