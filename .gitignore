@@ -34,12 +34,15 @@ yarn-error.log*
 # local assistant settings
 .claude/settings.local.json
 
-# local planning docs
+# local planning docs and personal channel content
 /YOUTUBE_RESEARCH_COPILOT_PLAN.md
 /docs/stage-0-audit.md
+/ROADMAP.md
+/channel-workspaces/
 
 # env files (can opt-in for committing if needed)
 .env*
+!.env.example
 
 # vercel
 .vercel

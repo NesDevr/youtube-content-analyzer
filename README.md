@@ -9,8 +9,11 @@ Built with **Next.js 16**, **React 19**, **TypeScript**, **Tailwind CSS 4**, **P
 ## Features
 
 - **Channel Workspaces** - Keep separate planned, active, paused, and archived channel concepts. Searches, folders, and saved evidence are scoped to the selected workspace, while public video and channel data is shared across all of them.
-- **Opportunity Lab** - Analyze a video, a channel, or a topic query. Raw statistics, calculated metrics, sample size, and confidence are shown separately so you can see what each conclusion rests on.
-- **Ideas** - Collect saved evidence and manual observations about topics, titles, thumbnails, and formats into the folders behind a video decision.
+- **Current video** - The one idea you are making next, with its concept, references, packaging, research, structure, script, and visual plan kept on the idea itself.
+- **Ideas** - Everything the channel could make. Add one, edit one, and choose which becomes the current video.
+- **Find references** - Ask what you want to find, approve the suggested searches, see the maximum quota cost, then run them. Pasting a video or channel link analyzes it against comparable uploads instead, with raw statistics, calculated metrics, sample size, and confidence shown separately.
+- **Library** - The reference collections, verified outliers, saved videos, and written observations this workspace has kept.
+- **Advanced** - The machinery behind all of it: quota budget, search cache, collection ledger, tracked channels, measured growth, and the Codex research queue.
 
 ## Outlier metric
 
@@ -51,7 +54,7 @@ The app also uses public, non-key integrations:
 
 ## Environment Variables
 
-Create a local `.env` file:
+Copy `.env.example` to `.env` and fill it in:
 
 ```env
 DATABASE_URL="file:./dev.db"
@@ -64,6 +67,15 @@ Only needed if you enable the optional Gemini features:
 GOOGLE_PROJECT_ID=your_google_cloud_project_id
 GOOGLE_CLOUD_LOCATION=us-central1
 ```
+
+## Runs locally, not on the open internet
+
+This is a single-user tool and it is built that way. The API routes have no
+authentication and the SQLite database has no per-user boundary — a workspace is
+an organizing device, not a security boundary. Anyone who can reach the server
+can read and modify every workspace. Run it on `localhost`. Deploying it to a
+public URL exposes the whole database and lets strangers spend your YouTube API
+quota.
 
 ## Getting Started
 
@@ -82,3 +94,24 @@ npm test
 ```
 
 Covers the outlier metric — medians, baseline exclusions, format separation, insufficient samples — and workspace isolation across folders, searches, and saved evidence.
+
+## Codex research handoff
+
+The current video's research step creates a workspace-owned research job; it
+never pretends a web button can call Codex Desktop. Run these commands from the project root when
+you explicitly want Codex to take a queued job:
+
+```bash
+npm run research:jobs -- list 2
+npm run research:jobs -- claim 17
+npm run research:jobs -- inspect 17
+npm run research:jobs -- update 17 progress.json
+npm run research:jobs -- complete 17 result.json
+```
+
+`progress.json` must contain sourced evidence, each marked `primary` or
+`commentary`. `result.json` uses `research-job-v1` and must include a
+conclusion, claims, counterarguments, missing evidence, risks, and any original
+ideas. A job can be safely returned to the queue with `resume`; completed jobs
+are immutable. The command fails loudly when an id, state transition, source,
+or result shape is invalid.
